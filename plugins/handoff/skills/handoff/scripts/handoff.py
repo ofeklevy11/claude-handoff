@@ -333,9 +333,10 @@ def parse_transcript(path):
                     for b in c:
                         if not isinstance(b, dict) or b.get("type") != "tool_result":
                             continue
-                        name = tools.get(b.get("tool_use_id"), "?")
+                        name, tinp = tools.get(b.get("tool_use_id"), ("?", {}))
                         body = tool_result_text(b)
-                        if name == "Artifact":  # publish results; type catalogs are dropped at the end
+                        publish = tinp.get("action", "publish") == "publish" and not tinp.get("asset")
+                        if name == "Artifact" and publish:  # list/read results are not this session's pages
                             type_urls.update(re.findall(r"type_url[\"':\s]*(" + _ARTIFACT.pattern + ")", body or ""))
                             for u in _ARTIFACT.findall(body or ""):
                                 S["artifacts"].setdefault(u, "")
@@ -360,7 +361,7 @@ def parse_transcript(path):
                             turn["last_text"] = b["text"]
                     elif b.get("type") == "tool_use":
                         name, inp = b.get("name", "?"), b.get("input") or {}
-                        tools[b.get("id")] = name
+                        tools[b.get("id")] = (name, inp)
                         if turn is not None:
                             turn["tools"][name] += 1
                         if name in ("Write", "Edit", "MultiEdit", "NotebookEdit"):

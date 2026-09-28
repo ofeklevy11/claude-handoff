@@ -277,10 +277,12 @@ lines = [
         {"type": "tool_use", "id": "t1", "name": "Write", "input": {"file_path": str(work / "src" / "app.js"), "content": "x"}},
         {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456' x", "description": "call api"}},
         {"type": "tool_use", "id": "t3", "name": "Artifact", "input": {}},
-        {"type": "tool_use", "id": "t4", "name": "Skill", "input": {"skill": "frontend-design"}}]}},
+        {"type": "tool_use", "id": "t4", "name": "Skill", "input": {"skill": "frontend-design"}},
+        {"type": "tool_use", "id": "t5", "name": "Artifact", "input": {"action": "list"}}]}},
     {"type": "user", "timestamp": T.format(3), "message": {"content": [
         {"type": "tool_result", "tool_use_id": "t3", "content": "type_url: https://claude.ai/artifact/TYPECATALOG1 · Published https://claude.ai/artifact/REALPAGE123"},
-        {"type": "tool_result", "tool_use_id": "t2", "content": "401 unauthorized", "is_error": True}]}},
+        {"type": "tool_result", "tool_use_id": "t2", "content": "401 unauthorized", "is_error": True},
+        {"type": "tool_result", "tool_use_id": "t5", "content": "- (mine) Old page https://claude.ai/artifact/LISTEDONLY9"}]}},
     {"type": "attachment", "timestamp": T.format(4), "attachment": {"type": "queued_command",
         "prompt": "<agent-message from=\"x\">subagent report, not the user</agent-message>"}},
     {"type": "user", "timestamp": T.format(5), "message": {"content": "תוסיף גם טופס יצירת קשר"}},
@@ -299,7 +301,7 @@ if folder:
           and "noise" not in msgs)
     check("subagent report is NOT counted as a user message", "subagent report" not in msgs)
     m = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
-    check("artifact kept, type catalog dropped", [a["url"] for a in m["artifacts"]] == ["https://claude.ai/artifact/REALPAGE123"])
+    check("published artifact kept; type catalog and listed-only pages dropped", [a["url"] for a in m["artifacts"]] == ["https://claude.ai/artifact/REALPAGE123"])
     check("skills captured", m["skills"] == ["frontend-design"])
     check("usage at handoff recorded", (m["usage_at_handoff"] or {}).get("five_hour") == 84)
     cmdmd = (folder / "context" / "commands.md").read_text(encoding="utf-8")

@@ -1,6 +1,6 @@
 {
   "name": "handoff",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "When the 5-hour window, weekly limit or subscription is about to run out, Claude stops, packs the session into a handoff folder (state doc, every user message verbatim, files, memory, secrets redacted) and hands you a ready prompt to continue in a new session or another account.",
   "author": {
     "name": "Ofek Levy",
