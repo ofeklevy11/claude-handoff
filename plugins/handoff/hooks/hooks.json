@@ -1,0 +1,28 @@
+{
+  "description": "handoff sentinel: watches the 5-hour / weekly plan limits and tells Claude to stop and hand off before they run out. Silent otherwise.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/skills/handoff/scripts/run.sh\" --sentinel",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/skills/handoff/scripts/run.sh\" --sentinel",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

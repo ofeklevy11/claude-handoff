@@ -1,0 +1,4 @@
+# run.sh must keep LF endings or `sh` fails on Windows clones with core.autocrlf=true
+* text=auto eol=lf
+*.png binary
+*.zip binary
