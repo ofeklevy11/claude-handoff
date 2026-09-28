@@ -207,7 +207,10 @@ def rel(fp, cwd):
 
 def L(p):
     """Windows long-path form, so deep workspace copies never hit the 260-char limit."""
-    s = str(Path(p).resolve())
+    try:
+        s = str(Path(p).resolve())
+    except (OSError, ValueError):  # Python 3.8 on Windows raises on names it cannot hold (newline, |, <) from a transcript
+        s = os.path.abspath(str(p))
     if os.name == "nt" and not s.startswith(LONG):
         s = LONG + s
     return Path(s)
