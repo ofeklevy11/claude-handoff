@@ -100,7 +100,8 @@ curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/main/inst
 python tests/run_tests.py        # 99 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
                                  # hook כתהליך אמיתי, גשר ה-statusline, pipeline מלא עם שער חיובי ושלילי, תרגיל
 python tests/install_test.py     # התקנה אמיתית של הפלאגין לתיקיית הגדרות זמנית (בלי לגעת בשלך)
-python tests/harness_test.py     # תהליך Claude Code אמיתי: הפלאגין נטען, ה-hook רץ, והודעת העצירה מוזרקת למודל. בלי עלות
+python tests/harness_test.py     # תהליך Claude Code אמיתי: הפלאגין נטען, ה-hook רץ, וההודעה מוזרקת למודל. בלי עלות
+python tests/harness_test.py --installed   # אותו דבר על הפלאגין שמותקן אצלך, עם ההגדרות שלך
 python tests/e2e.py              # סשן Claude אמיתי שעובד על משימה בזמן שהמכסה עולה. עובר רק אם הוא
                                  # עוצר באמצע ומפיק handoff שעובר את השער. דורש התחברות ל-claude בטרמינל, עולה טוקנים
 ```
