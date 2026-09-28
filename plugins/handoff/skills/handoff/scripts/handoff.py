@@ -64,11 +64,18 @@ DATA_RULE = ("כל מה שנאסף אוטומטית (סעיף 8, context/*, memo
 
 # ---------------------------------------------------------------- secrets
 _VAL = r"[^\s\"'`,;()<>\[\]{}]"  # one character of a secret value in `name = value` shapes
-# a value shaped like code, not like a secret: an identifier or dotted reference made of words
-# (config.api_key_v2, env.R2_SECRET_ACCESS_KEY, auth_token_v2, x-api-key-v2), or a ${...} / process.env lookup
-_CODE = (r"(?!(?:process\.env|os\.environ|import\.meta|https?://|\$))"
-         r"(?![A-Za-z][A-Za-z0-9]*(?:[_.\-][A-Za-z0-9]+)+[_.\-]?(?![A-Za-z0-9_.\-/+=@!#%]))")
-_REAL = _CODE + r"(?=%s*\d)(?=%s*[A-Za-z])" % (_VAL, _VAL)
+_END = r"(?=[\s\"'`,;<>{})\]]|$)"  # a value ends here; `hash(x)` and `tokens[0]` are calls, never values
+# A value is code, not a secret, only when it is a REFERENCE: ${VAR} / $VAR / process.env.X, an unquoted
+# dotted member (config.api_key_v2, env.R2_SECRET_ACCESS_KEY, user.password2), or an unquoted bare identifier
+# after ` = ` (self.password = password2). Anything else with a letter and a digit stays a secret, whatever it
+# looks like (my_jwt_secret_key_12345, prod-db-pass-2024, "Summer.Vacation.2024").
+_REF = (r"(?!process\.env|os\.environ|import\.meta|https?://|\$\{|\$[A-Z_][A-Z0-9_]*(?![A-Za-z0-9]))"
+        r"(?!(?<![\"'])(?:[A-Za-z_$][\w$]*\.)+[A-Za-z_$][\w$]*(?![\w$.\-/+=@!#%:]))"
+        r"(?!(?<== )[A-Za-z_]\w*(?![\w.\-/+=@!#%:$]))")
+_REAL = _REF + r"(?=%s*\d)(?=%s*[A-Za-z])" % (_VAL, _VAL)
+# ALL_CAPS names that name a key, not hold one: STORAGE_KEY, TOKEN_KEY, API_KEY_HEADER, SESSION_TOKEN_TTL_MS
+_KEYNAME = (r"(?![A-Z0-9_]*(?:STORAGE|CACHE|HEADER|PREFIX|SUFFIX|NAME|FIELD|PARAM|TTL|EXPIR|LENGTH|TYPE|URL|URI|"
+            r"PATH|FILE|DIR|COUNT|LIMIT|SIZE|TOKEN_KEY)[A-Z0-9_]*\s*[=:])")
 _SECRET_RULES = [
     # a key cut before its END line (clipped, truncated tool output) is still a key: base64 run after the header
     ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----"
@@ -79,32 +86,56 @@ _SECRET_RULES = [
     ("github-token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})"), None),
     ("aws-key", re.compile(r"\bAKIA[0-9A-Z]{16}\b"), None),
     ("google-key", re.compile(r"\bAIza[0-9A-Za-z_\-]{35}"), None),
-    ("meta-token", re.compile(r"(?<![A-Za-z0-9+/=])EAA[A-Za-z0-9]{40,}"), None),  # not inside base64 image data
+    ("meta-token", re.compile(r"(?<![A-Za-z0-9+/])EAA[A-Za-z0-9]{40,}"), None),  # never inside base64 (see _B64)
     ("slack-token", re.compile(r"\bxox[abprs]-[A-Za-z0-9\-]{10,}"), None),
     ("stripe-key", re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}"), None),
     ("misc-token", re.compile(r"\b(?:npm_[A-Za-z0-9]{36}|glpat-[A-Za-z0-9_\-]{20,}|hf_[A-Za-z0-9]{30,}|"
-                              r"ya29\.[A-Za-z0-9_\-]{20,}|xapp-[A-Za-z0-9\-]{20,}|pypi-[A-Za-z0-9_\-]{50,})"), None),
+                              r"ya29\.[A-Za-z0-9_\-]{20,}|xapp-[A-Za-z0-9\-]{20,}|pypi-[A-Za-z0-9_\-]{50,}|"
+                              r"gsk_[A-Za-z0-9]{20,}|whsec_[A-Za-z0-9_]{16,}|GOCSPX-[A-Za-z0-9_\-]{20,}|"
+                              r"SG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}|shp(?:at|ss|ca|pa)_[a-fA-F0-9]{32}|"
+                              r"xai-[A-Za-z0-9]{20,}|pplx-[A-Za-z0-9]{20,}|r8_[A-Za-z0-9]{20,}|"
+                              r"dckr_pat_[A-Za-z0-9_\-]{20,}|dop_v1_[a-f0-9]{40,}|lin_api_[A-Za-z0-9]{20,}|"
+                              r"sbp_[a-f0-9]{30,}|hvs\.[A-Za-z0-9_\-]{20,}|glsa_[A-Za-z0-9_]{20,})"), None),
+    ("webhook-url", re.compile(r"https://(?:hooks\.slack\.com/services|discord(?:app)?\.com/api/webhooks)/[A-Za-z0-9_/\-]{20,}"), None),
+    ("azure-key", re.compile(r"(?i)(\b(?:AccountKey|SharedAccessKey)=)([A-Za-z0-9+/=]{20,})"), 2),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"), None),
     ("bearer", re.compile(r"(?i)(\b(?:bearer|basic)\s+)([A-Za-z0-9._\-+/=]{16,})"), 2),
     ("url-secret", re.compile(r"(?i)([?&](?:access_token|token|key|api_key|apikey|secret|password|pwd)=)(?![$({])([^&\s\"'<>]{8,})"), 2),
     # any scheme with user:password@ ; '/' is not a password character here, so host:port/@scope is left alone,
     # and ${POSTGRES_PASSWORD} is a variable, not a password
-    ("conn-string", re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://[^:\s/@]+:)(?!\$)([^@\s/]+)(@)"), 2),
-    ("env-secret", re.compile(r"\b([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|_KEY)[A-Z0-9_]*\s*[=:]\s*[\"']?)" + _CODE
-                              + r"(?=[A-Za-z0-9_\-./+=]*\d)(?=[A-Za-z0-9_\-./+=]*[A-Za-z])([A-Za-z0-9_\-./+=]{12,})"), 2),
+    ("conn-string", re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://[^:\s/@]+:)(?!\$\{|(?-i:\$[A-Z_][A-Z0-9_]*)@)([^@\s/]+)(@)"), 2),
+    ("env-secret", re.compile(r"\b" + _KEYNAME + r"([A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|_KEY)[A-Z0-9_]*"
+                              r"\s*[=:]\s*[\"']?)" + _REF + r"(?=[A-Za-z0-9_\-./+=]*\d)(?=[A-Za-z0-9_\-./+=]*[A-Za-z])"
+                              r"([A-Za-z0-9_\-./+=]{12,})" + _END), 2),
     ("quoted-secret", re.compile(r"(?i)([\"'](?:api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|client[_-]?secret|secret[_-]?key|password)[\"']\s*[:=]\s*[\"'])([^\"'\s]{12,})([\"'])"), 2),
     # lower-case / quoted names that END in a secret word: db_password, aws_secret_access_key, "token", _authToken.
     # The value needs a letter and a digit, so `password: z.string()` or `max_tokens: 4096` stay untouched.
     ("named-secret", re.compile(r"(?i)((?:token|secret|password|passwd|api[_-]?key|access[_-]?key)[\"']?"
-                                r"\s*[=:]\s*[\"']?)" + _REAL + r"(" + _VAL + r"{12,})"), 2),
+                                r"\s*[=:]\s*[\"']?)" + _REAL + r"(" + _VAL + r"{8,})" + _END), 2),
 ]
+# base64 payloads (data: URIs, 76-column blocks): an `EAA...` run inside them is image data, not a Meta token
+_B64 = re.compile(r"data:[\w/+.\-]+;base64,[A-Za-z0-9+/=\s]+|(?:^[A-Za-z0-9+/]{56,80}={0,2}\r?\n){2,}[A-Za-z0-9+/=]*",
+                  re.M)
+_IN_B64 = {"meta-token"}
+
+
+def _b64_spans(text):
+    return [m.span() for m in _B64.finditer(text)]
+
+
+def _in(spans, pos):
+    return any(s <= pos < e for s, e in spans)
 # a rule can only match when one of its words is in the (lower-cased) text: a C-speed substring test first,
 # so scanning a whole workspace stays fast (same results, far fewer regex passes)
 _HINTS = {
     "private-key": ("private key",), "anthropic-key": ("sk-ant-",), "openrouter-key": ("sk-or-v1-",),
     "openai-key": ("sk-",), "github-token": ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"),
     "aws-key": ("akia",), "google-key": ("aiza",), "meta-token": ("eaa",), "slack-token": ("xox",),
-    "stripe-key": ("_live_", "_test_"), "misc-token": ("npm_", "glpat-", "hf_", "ya29.", "xapp-", "pypi-"),
+    "stripe-key": ("_live_", "_test_"),
+    "misc-token": ("npm_", "glpat-", "hf_", "ya29.", "xapp-", "pypi-", "gsk_", "whsec_", "gocspx-", "sg.", "shpat_",
+                   "shpss_", "shpca_", "shppa_", "xai-", "pplx-", "r8_", "dckr_pat_", "dop_v1_", "lin_api_", "sbp_",
+                   "hvs.", "glsa_"),
+    "webhook-url": ("hooks.slack.com", "/api/webhooks"), "azure-key": ("accountkey=", "sharedaccesskey="),
     "jwt": ("eyj",), "bearer": ("bearer", "basic"), "url-secret": ("token=", "key=", "secret=", "password=", "pwd="),
     "conn-string": ("://",), "env-secret": ("token", "secret", "passw", "_key"),
     "quoted-secret": ("key", "token", "secret", "passw"),
@@ -117,9 +148,13 @@ def redact(text, count=True):
     if not text:
         return text
     for name, rx, grp in _SECRET_RULES:
-        def _sub(m, name=name, grp=grp):
+        spans = _b64_spans(text) if name in _IN_B64 else []
+
+        def _sub(m, name=name, grp=grp, spans=spans):
             if grp is not None and (m.group(grp) or "").startswith("[REDACTED"):
                 return m.group(0)  # already redacted: redacting twice must not count twice
+            if spans and _in(spans, m.start()):
+                return m.group(0)  # image data, not a token
             if count:
                 REDACTIONS[name] += 1
             if grp is None:
@@ -136,9 +171,10 @@ def find_secrets(text):
     for name, rx, grp in _SECRET_RULES:
         if not any(x in low for x in _HINTS[name]):
             continue
+        spans = _b64_spans(text) if name in _IN_B64 else []
         for m in rx.finditer(text):
             val = m.group(grp) if grp else m.group(0)
-            if val and not val.startswith("[REDACTED"):
+            if val and not val.startswith("[REDACTED") and not (spans and _in(spans, m.start())):
                 hits.append(name)
     return hits
 
@@ -576,8 +612,12 @@ def copy_memory(cwd, transcript, dest):
                 srcs += [(p, f"project/{d.replace('/', '__')}__{p.name}") for p in sorted((root / d).glob("*.md"))]
         srcs += [(p, f"project/{p.name}") for p in sorted(root.glob("*ledger*.md"))]
     for src, rel in srcs:
-        # a memory file, or a folder on its way, that is a link points outside the project: it never travels
-        if is_link(src) or (cwd and any(is_link(q) for q in src.parents if Path(cwd) in q.parents)):
+        # a memory file (or a folder on its way) may be a link, e.g. CLAUDE.md -> AGENTS.md: fine while it stays
+        # inside the project (or ~/.claude for auto-memory); a link that leads out of it never travels
+        home = Path(cwd) if rel.startswith("project/") else CLAUDE
+        try:
+            src.resolve().relative_to(home.resolve())
+        except (ValueError, OSError):
             continue
         try:
             if src.stat().st_size <= 400_000:
@@ -603,9 +643,19 @@ _BOMS = ((b"\xff\xfe\x00\x00", "utf-32-le"), (b"\x00\x00\xfe\xff", "utf-32-be"),
          (b"\xfe\xff", "utf-16-be"), (b"\xef\xbb\xbf", "utf-8"))
 
 
+def _texty(s):
+    """Reads as text: at least 85% of the characters are ordinary (ASCII, Latin, Greek, Cyrillic, Hebrew, Arabic,
+    punctuation, whitespace). Random binary decoded as UTF-16/32 lands mostly on CJK, surrogates and controls."""
+    if not s:
+        return False
+    ok = sum(1 for c in s if c in "\t\n\r" or " " <= c <= "~" or " " <= c <= "ۿ" or " " <= c <= "⁯")
+    return ok >= 0.85 * len(s)
+
+
 def text_of(p):
-    """The file's text when it is text, in any extension or none, else None (binary). UTF-16/32 count as text
-    (PowerShell 5.1 `>` and Out-File write UTF-16): decoded by BOM, or by NULs in every other byte."""
+    """The file's text when it is text, in any extension or none, else None (a real binary). Text with NUL bytes
+    counts: UTF-16/32 with or without a BOM (PowerShell 5.1 `>` and Out-File write UTF-16), and UTF-8 with a stray
+    NUL (a log). Each candidate decoding must read as text, so an image or a ZIP is never mistaken for one."""
     with open(p, "rb") as fh:
         head = fh.read(8192)
         for bom, enc in _BOMS:
@@ -613,10 +663,15 @@ def text_of(p):
                 return (head + fh.read())[len(bom):].decode(enc, errors="ignore")
         if b"\0" not in head:
             return (head + fh.read()).decode("utf-8", errors="ignore")
-        ev, od = head[0::2], head[1::2]
-        for zeros, text, enc in ((od, ev, "utf-16-le"), (ev, od, "utf-16-be")):
-            if zeros and zeros.count(0) > 0.7 * len(zeros) and text.count(0) < 0.1 * len(text):
-                return (head + fh.read()).decode(enc, errors="ignore")
+        cands = ["utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"]
+        if head.count(0) <= max(4, len(head) // 100):
+            cands.insert(0, "utf-8-nul")
+        for enc in cands:
+            sample = head.replace(b"\0", b"").decode("utf-8", "replace") if enc == "utf-8-nul" else \
+                head[:len(head) - len(head) % 4].decode(enc, "replace")
+            if _texty(sample):
+                rest = head + fh.read()
+                return rest.replace(b"\0", b"").decode("utf-8", "ignore") if enc == "utf-8-nul" else rest.decode(enc, "ignore")
         return None
 
 
@@ -631,7 +686,7 @@ def copy_workspace(cwd, dest):
     never travel: links out of the tree, secret dirs and file names, and any file whose content holds a secret.
     Each of those is listed, so HANDOFF.md can say what was left behind and where the original is."""
     rep = {"files": 0, "bytes": 0, "skipped_large": [], "skipped_secret": [], "skipped_link": [], "skipped_cap": [],
-           "errors": [], "truncated": False}
+           "errors": [], "truncated": False, "gap_paths": []}
     root, dest = L(cwd), L(dest)
 
     def unreadable(e):  # a directory os.walk cannot list is a hole in the copy, never a silent skip
@@ -640,6 +695,7 @@ def copy_workspace(cwd, dest):
         except (TypeError, ValueError):
             where = str(e.filename)
         rep["errors"].append(f"{where}: {e.strerror or e}")
+        rep["gap_paths"].append(where)
 
     for dirpath, dirnames, filenames in os.walk(root, onerror=unreadable):
         keep = []
@@ -651,6 +707,7 @@ def copy_workspace(cwd, dest):
                 link = _lstat_link(os.path.join(dirpath, d))
             except OSError as e:
                 rep["errors"].append(f"{relp}: {e.strerror or e}")
+                rep["gap_paths"].append(relp)
                 continue
             if d in SECRET_DIRS or SECRET_FILES.search(d):  # same test as the gate: a `.env/` folder never travels
                 rep["skipped_secret"].append(relp + os.sep)
@@ -668,6 +725,7 @@ def copy_workspace(cwd, dest):
                     continue
             except OSError as e:
                 rep["errors"].append(f"{rel}: {e.strerror or e}")
+                rep["gap_paths"].append(str(rel))
                 continue
             if SECRET_FILES.search(fn):
                 rep["skipped_secret"].append(str(rel))
@@ -676,10 +734,12 @@ def copy_workspace(cwd, dest):
                 size = src.stat().st_size
                 if size > MAX_FILE_COPY:
                     rep["skipped_large"].append(f"{rel} ({human_size(size)})")
+                    rep["gap_paths"].append(str(rel))
                     continue
                 if rep["bytes"] + size > MAX_WORKSPACE:
                     rep["truncated"] = True
                     rep["skipped_cap"].append(str(rel))
+                    rep["gap_paths"].append(str(rel))
                     continue
                 text = text_of(src)
                 hits = sorted(set(find_secrets(text))) if text is not None else []
@@ -693,6 +753,7 @@ def copy_workspace(cwd, dest):
                     os.chmod(out, stat.S_IMODE(os.stat(out).st_mode) & 0o700)  # yours only; scripts stay executable
             except OSError as e:
                 rep["errors"].append(f"{rel}: {e.strerror or e}")
+                rep["gap_paths"].append(str(rel))
                 continue
             rep["files"] += 1
             rep["bytes"] += size
@@ -840,6 +901,9 @@ def cmd_collect(a):
         "skills": skills, "artifacts": [{"url": u, "title": t} for u, t in S["artifacts"].items()],
         "files_touched": len(S["files"]), "memory_files": mem, "workspace": ws, "git": bool(gi),
         "redactions": dict(REDACTIONS),
+        # a drill handoff is decided here, while the drill is live: it stays a drill even if the window closes
+        # before finalize, and an old drill that ran out unused never turns a real handoff into one
+        "drill": drill_live(sid),
     }
     write(folder / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
     print(folder)
@@ -995,9 +1059,15 @@ def cmd_verify(a):
         ws = F / "workspace"
         check(ws.is_dir() and any(ws.iterdir()), "עותק workspace קיים (תיקיית המקור זמנית)")
     # what is still missing: a file copied in by hand since collect counts as resolved
-    gap = [x for x in ws_partial(m.get("workspace")) if not (F / "workspace" / x.split(" (")[0].split(": ")[0]).is_file()]
+    w = m.get("workspace") or {}
+    paths = w.get("gap_paths") or [re.sub(r" \([\d.]+[KMGT]?B\)$", "", x) for x in ws_partial(w)]  # 1.0.3-style manifests
+
+    def present(r):  # copied in by hand since collect: a file, or a folder with something in it
+        q = F / "workspace" / r
+        return q.is_file() or (q.is_dir() and any(q.iterdir()))
+    gap = [r for r in paths if not present(r)]
     if gap:  # the source of a scratch copy dies with the session: an incomplete copy is not a handoff
-        named = any(x.split(" (")[0].split(": ")[0] in md for x in gap)  # the list itself, not just the words
+        named = all(md_cell(r) in md for r in gap[:12])  # the list itself (up to 12, then manifest), not just the words
         allowed = getattr(a, "allow_partial", False) and PARTIAL in md and named
         check(allowed, f"עותק workspace שלם (חסרים {len(gap)}: {'; '.join(map(str, gap[:4]))}). "
               f"אם אין ברירה: להשאיר את \"{PARTIAL}\" ואת רשימת החסרים בראש HANDOFF.md, לספר למשתמש, "
@@ -1064,8 +1134,8 @@ def cmd_finalize(a):
     d = load_json(drill, {}) or {}
     # a drill handoff: the drill is bound to this session, or this session ran a drill it has not handed off yet
     # (even if the drill window ran out while HANDOFF.md was being written)
-    drilled = (drill.is_file() and d.get("session") == m["session_id"]) or \
-        s.get("drill_started", 0) > s.get("drill_handoff", 0)
+    drilled = bool(m.get("drill")) or (drill.is_file() and d.get("session") == m["session_id"]
+                                       and d.get("until", 0) > time.time())
     if drill.is_file() and (d.get("session") == m["session_id"] or d.get("until", 0) <= time.time()):
         drill.unlink()  # only the drilled session's own handoff ends the drill (an expired one is just tidied)
     if drilled:
@@ -1129,6 +1199,11 @@ def cmd_find(a):
         print(f"no session titled like '{a.text}'")
 
 
+def drill_live(sid):
+    d = load_json(STATE / "drill.json", {}) or {}
+    return bool(sid) and d.get("session") == sid and d.get("until", 0) > time.time()
+
+
 def cmd_drill(a):
     """A safe rehearsal for THIS session only: for the next N minutes (1-120) its 5-hour threshold is 1%, so after
     a minute of work it is stopped and hands off exactly like the real thing. Other sessions are never touched.
@@ -1143,21 +1218,12 @@ def cmd_drill(a):
         minutes = max(1, min(a.minutes, 120))
         now = time.time()
         write(p, json.dumps({"until": now + minutes * 60, "since": now, "session": sid}))
-        sp = STATE / "state" / f"{sid}.json"  # remembered by the session too: its handoff is a drill even if late
-        s = load_json(sp, {}) or {}
-        s["drill_started"] = now
-        write(sp, json.dumps(s, ensure_ascii=False, indent=1))
         print(f"DRILL ON for {minutes} min, for this session only ({sid}): keep working here on any multi-step "
               f"task; after about a minute of work it stops and hands off. Other sessions are not affected. "
               f"Ends by itself after the handoff (or: drill off).")
     else:
         if p.is_file():
             p.unlink()
-        sid = os.environ.get("CLAUDE_CODE_SESSION_ID")
-        sp = STATE / "state" / f"{sid}.json"
-        s = load_json(sp, {}) if sid else None
-        if s and s.pop("drill_started", None) is not None:  # a cancelled drill: the next handoff is a real one
-            write(sp, json.dumps(s, ensure_ascii=False, indent=1))
         print("DRILL OFF: thresholds back to normal")
 
 

@@ -179,14 +179,22 @@ def decide(event, sid, now, cfg, st, usage, desktop, terminal=False):
 def refresh_tee():
     """A statusline bridge turned on by an older version keeps its own copy of the tee: bring it up to this
     version (so `statusline_tee.py --off` and the Git Bash pass-through work after an update). Silent."""
+    tmp = None
     try:
         live, new = STATE / "statusline_tee.py", Path(__file__).resolve().parent / "statusline_tee.py"
         if live.is_file() and new.is_file() and live.read_bytes() != new.read_bytes():
             tmp = live.with_name(f"statusline_tee.{os.getpid()}.tmp")
             tmp.write_bytes(new.read_bytes())
             os.replace(tmp, live)
+            tmp = None
     except Exception:
         pass
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink()  # the tee was busy (Windows): try again on the next prompt, leave nothing behind
+            except OSError:
+                pass
 
 
 def main():

@@ -94,6 +94,19 @@ SECRETS = [
     'export DB_PASSWORD="' + "P@ssw0rd!" + '2024-prod"',
     "rediss://default:" + "AbC123xyz789" + "@redis.upstash.io:6379",
     '{"token": "' + "abcd1234" + 'efgh5678"}',
+    # 1.0.4 audit round 2: real secrets that look like words or are short, and newer key formats
+    "DB_PASSWORD=" + "prod-db-pass-" + "2024",
+    "JWT_SECRET=" + "my_jwt_secret_key_" + "12345",
+    "WEBHOOK_SECRET=" + "whsec_live_" + "abc123def456",
+    'api_key = "' + "live_key_" + '7f3a9c2e"',
+    'client_secret: "' + "abc-def-ghi-" + '123"',
+    'ADMIN_PASSWORD: "' + "Summer.Vacation." + '2024"',
+    "password: " + "hunter" + "22",
+    "x=EAA" + "a1B2c3" * 8,
+    "GROQ_API_KEY=gsk_" + "a1B2c3d4" * 4,
+    "postgres://u:" + "$ecretPass9x" + "@db/x",
+    "https://hooks.slack.com/services/" + "T000/B000/" + "X" * 24,
+    "AccountName=x;AccountKey=" + "a1B2c3d4" * 6 + "==;",
 ]
 CODE = [
     "const tokens = JSON.parse(fs.readFileSync(path.join(dir, 'tokens.json'), 'utf8'))",
@@ -126,12 +139,20 @@ CODE = [
     "token = tokens[1024]",
     "password: user.password2",
     '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg+EAA' + "A" * 48 + '/EAA' + "B" * 44 + '==">',
+    "DATABASE_URL=postgres://u:${DB_PASS}@h/db",
+    "password=os.environ['DB_PASS']",
+    "API_KEY=${API_KEY}",
+    "token: ${{ secrets.GH_TOKEN }}",
 ]
 for t in SECRETS:
     r = h.redact(t, count=False)
     check(f"redacts  {t[:46]}", bool(h.find_secrets(t)) and not h.find_secrets(r) and "REDACTED" in r)
 for t in CODE:
     check(f"leaves   {t[:46]}", not h.find_secrets(t) and h.redact(t, count=False) == t)
+import base64 as _b64  # noqa: E402
+WRAPPED_B64 = _b64.encodebytes((b"\x10" + b"\x00" * 56) * 6).decode()  # 76-column lines that start 'EAAAA...'
+check("A3 a line-wrapped base64 image (76 columns) is image data, not a Meta token",
+      not h.find_secrets(WRAPPED_B64) and h.redact(WRAPPED_B64, count=False) == WRAPPED_B64)
 
 # ------------------------------------------------------------------ sentinel decisions
 section("sentinel decisions")
@@ -436,7 +457,7 @@ if folder:
     check("#8 a key at the end of a 9MB workspace file -> FAIL",
           gate(lambda x: x, ws={"big.md": "x" * 9_000_000 + "\n" + KEY + "\n"}) != 0)
     check("#8 a binary workspace file is not scanned (documented limit)",
-          gate(lambda x: x, ws={"img.png": b"\x89PNG\0\0" + KEY.encode()}) == 0)
+          gate(lambda x: x, ws={"img.png": b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 40 + KEY.encode()}) == 0)
     check("#15 a section header that appears twice -> FAIL",
           gate(lambda x: x.replace("## 9.", "## 4. dup\n1. " + "x" * 60 + "\n\n## 9.", 1)) != 0)
 
@@ -532,6 +553,7 @@ if folder:
     (pwk / "src" / "app.js").write_text("const a = 1\n", encoding="utf-8")
     (pwk / "src" / "config.js").write_text(f"const k = '{KEY}'\n", encoding="utf-8")
     (pwk / "clip.bin").write_bytes(b"\0" * 5000)
+    (pwk / "big (1).bin").write_bytes(b"\0" * 5000)
     old_max, h.MAX_FILE_COPY = h.MAX_FILE_COPY, 4000
     buf = io.StringIO()
     try:
@@ -559,6 +581,10 @@ if folder:
         (pf / "HANDOFF.md").write_text(pmd.replace("clip.bin", "a-file"), encoding="utf-8")
         check("A8 --allow-partial also needs the list of missing files, not just the words", fin(pf, allow_partial=True)[0] != 0)
         (pf / "HANDOFF.md").write_text(pmd, encoding="utf-8")
+        for n_ in ("clip.bin", "big (1).bin"):  # the model copies the gap in by hand, as SKILL.md says
+            shutil.copy2(pwk / n_, pf / "workspace" / n_)
+        check("A11 files copied in by hand (even 'big (1).bin') clear the gap: no --allow-partial needed",
+              fin(pf)[0] == 0)
     else:
         for n_ in ("#6 HANDOFF note", "X-5 skipped file named", "#6 FAIL", "#6 flag alone", "#6 flag passes", "#6 PROMPT",
                    "A8 list needed"):
@@ -574,15 +600,26 @@ if folder:
     dl = TMP / "glate"
     shutil.copytree(folder, dl)
     ml_ = json.loads((dl / "manifest.json").read_text(encoding="utf-8"))
-    ml_["session_id"] = "late-drill"
+    ml_["session_id"], ml_["drill"] = "late-drill", True  # collect ran while the drill was live
     (dl / "manifest.json").write_text(json.dumps(ml_, ensure_ascii=False), encoding="utf-8")
     (state / "state").mkdir(exist_ok=True)
-    (state / "state" / "late-drill.json").write_text(json.dumps({"first_seen": now - 3600, "drill_started": now - 7200}),
-                                                     encoding="utf-8")
+    (state / "state" / "late-drill.json").write_text(json.dumps({"first_seen": now - 3600}), encoding="utf-8")
     fin(dl)  # the drill window ran out while HANDOFF.md was being written: no drill.json any more
     stl = json.loads((state / "state" / "late-drill.json").read_text(encoding="utf-8"))
     check("A10 a drill whose window ran out mid-handoff is still a drill handoff (real protection stays on)",
           not stl.get("handoff_done") and stl.get("drill_handoff"))
+    dr = TMP / "greal"
+    shutil.copytree(folder, dr)
+    mr_ = json.loads((dr / "manifest.json").read_text(encoding="utf-8"))
+    mr_["session_id"], mr_["drill"] = "old-drill", False  # a drill ran out unused hours before this real handoff
+    (dr / "manifest.json").write_text(json.dumps(mr_, ensure_ascii=False), encoding="utf-8")
+    (state / "state" / "old-drill.json").write_text(json.dumps({"first_seen": now - 9 * 3600}), encoding="utf-8")
+    (state / "drill.json").write_text(json.dumps({"until": now - 7200, "since": now - 9000, "session": "old-drill"}),
+                                      encoding="utf-8")
+    fin(dr)
+    sto = json.loads((state / "state" / "old-drill.json").read_text(encoding="utf-8"))
+    check("A10 a real handoff after an old, expired drill is a real handoff (alerts stop, drill tidied)",
+          bool(sto.get("handoff_done")) and not (state / "drill.json").exists())
 
     section("1.0.4 · a pasted private key is redacted before anything is clipped (#9)")
     body = "\n".join(("MIIEowIBAAKCAQEAq8Zr3Kp9Lm2Qx7Vb4Nw1Hs6T" + "j0Rf5Yc8Ud3Ge" * 3)[:64] for _ in range(25))
@@ -780,11 +817,20 @@ check("#5 over the size cap: the big file is skipped, later small files still co
 
 section("1.0.4 audit · UTF-16 text, false positives, .env/ folders, unreadable folders, memory links (A1-A6)")
 u16 = f"ANTHROPIC_API_KEY={KEY}\r\n"
+heb = "שלום עולם, זה קובץ הגדרות. " * 4 + u16
 aw = tree(SHORT / "aw", {"ps-bom.txt": u16.encode("utf-16"), "ps-nobom.txt": u16.encode("utf-16-le"),
-                          "u32.txt": u16.encode("utf-32"), "src/ok.js": "const a = 1\n"})
+                          "u32.txt": u16.encode("utf-32"), "u32le-nobom.txt": u16.encode("utf-32-le"),
+                          "u32be-nobom.txt": u16.encode("utf-32-be"), "heb16-nobom.txt": heb.encode("utf-16-le"),
+                          "heb16be-nobom.txt": heb.encode("utf-16-be"), "session.log": b"build output\x00\n" + u16.encode(),
+                          "src/ok.js": "const a = 1\n",
+                          "img.png": b"\x89PNG\r\n\x1a\n\x00\x00" + bytes(range(256)) * 30})
 arep, adest = copyws(aw, "ad")
-check("A1 a key in a UTF-16/UTF-32 text file (PowerShell 5.1 output) is caught before copying",
-      not any((adest / n).exists() for n in ("ps-bom.txt", "ps-nobom.txt", "u32.txt")) and (adest / "src" / "ok.js").is_file())
+TEXTS = ("ps-bom.txt", "ps-nobom.txt", "u32.txt", "u32le-nobom.txt", "u32be-nobom.txt", "heb16-nobom.txt",
+         "heb16be-nobom.txt", "session.log")
+_leak = [n for n in TEXTS if (adest / n).exists()]
+check("A1 a key in UTF-16/UTF-32 text (BOM or not, Hebrew too) or a log with a stray NUL is caught before copying"
+      + (f" (copied: {_leak})" if _leak else ""), not _leak and (adest / "src" / "ok.js").is_file())
+check("A1 a real binary is still copied (not mistaken for text)", (adest / "img.png").is_file())
 fpw = tree(SHORT / "fpw", {f"src/f{i}.js": line + "\n" for i, line in enumerate(CODE)})
 fprep, fpdest = copyws(fpw, "fpd")
 check(f"A2 ordinary source files are never left out as 'secrets' ({len(CODE)} code shapes, incl. a base64 image)",
@@ -831,6 +877,28 @@ except Exception as e:  # noqa: BLE001
 check(f"A5 project memory never follows a link out of the project (link made: {mlink})",
       mlink and not any(c["to"].endswith("notes.md") or "crash" in c["to"] for c in mcopied)
       and any(c["to"].endswith("CLAUDE.md") for c in mcopied))
+inproj = tree(SHORT / "inproj", {"docs/notes/plan.md": "INSIDE-NOTE\n"})
+(inproj / ".claude").mkdir()
+ilink = False
+try:
+    if os.name == "nt":
+        import _winapi
+        _winapi.CreateJunction(str(inproj / "docs" / "notes"), str(inproj / ".claude" / "memory"))
+    else:
+        os.symlink(inproj / "docs" / "notes", inproj / ".claude" / "memory", target_is_directory=True)
+    ilink = True
+except Exception:  # noqa: BLE001
+    pass
+try:
+    icopied = h.copy_memory(inproj, mt, SHORT / "idest")
+except Exception as e:  # noqa: BLE001
+    icopied = [{"to": f"crash {e!r}", "from": ""}]
+check(f"A5 a memory link that stays inside the project is kept (link made: {ilink})",
+      ilink and any(c["to"].endswith("plan.md") for c in icopied))
+try:
+    (os.rmdir if os.name == "nt" else os.unlink)(inproj / ".claude" / "memory")
+except OSError:
+    pass
 try:
     (os.rmdir if os.name == "nt" else os.unlink)(mproj / "memory")
 except OSError:
