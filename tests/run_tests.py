@@ -374,6 +374,17 @@ check("status runs", cli("status").returncode == 0)
 check("a trailing '.' copied with a command is tolerated", cli("status", ".").returncode == 0)
 check("a real unknown argument is still rejected", cli("status", "--bogus").returncode != 0)
 
+section("desktop reading passed to collect (fixed in 1.0.3)")
+r = cli("collect", "--session", str(tr), "--name", "desktop-reading", "--reason", "x", "--five", "4", "--week", "8",
+        "--resets", "19:10")
+f2 = Path(r.stdout.splitlines()[0].strip()) if r.returncode == 0 and r.stdout else None
+head = (f2 / "HANDOFF.md").read_text(encoding="utf-8").splitlines()[2] if f2 else ""
+check("header shows the real reading, not 'not measured'", "5 שעות 4%" in head and "19:10" in head
+      and "שבועי 8%" in head and "לא נמדד" not in head)
+m = s.decide("PostToolUse", sid, now, cfg, {"first_seen": now - 3600}, None, True)
+check("desktop probe tells the model to pass the reading to collect", m and "collect" in m and "--five N" in m
+      and " . " not in m)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\nTESTS: {'PASS' if not fails else 'FAIL'} ({fails} failed)")
 sys.exit(1 if fails else 0)

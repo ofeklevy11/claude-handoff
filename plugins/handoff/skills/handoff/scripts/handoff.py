@@ -627,6 +627,8 @@ def cmd_collect(a):
     if (is_scratch or a.copy_workspace) and Path(cwd).is_dir():
         ws = copy_workspace(cwd, folder / "workspace")
 
+    if a.five is not None:  # the reading the model just saw (desktop get_usage), whatever its level
+        record_usage(a.five, a.week, a.resets)
     usage = read_usage(max_age=30 * 60)
     models = ", ".join(m for m, _ in S["models"].most_common()) or "?"
     skills = list(OrderedDict((s["skill"], None) for s in S["skills"] if s["skill"]))
@@ -855,13 +857,17 @@ def cmd_finalize(a):
 # ---------------------------------------------------------------- note / status / latest
 
 
-def cmd_note(a):
+def record_usage(five, week=None, resets=None):
     u = read_usage() or {}
-    u.update({"ts": time.time(), "source": "get_usage", "five_hour": a.five,
-              "seven_day": a.week if a.week is not None else u.get("seven_day"),
-              "five_hour_resets": a.resets or u.get("five_hour_resets")})
+    u.update({"ts": time.time(), "source": "get_usage", "five_hour": five,
+              "seven_day": week if week is not None else u.get("seven_day"),
+              "five_hour_resets": resets or u.get("five_hour_resets")})
     write(USAGE_FILE, json.dumps(u, ensure_ascii=False, indent=1))
-    print("noted:", usage_line(u))
+    return u
+
+
+def cmd_note(a):
+    print("noted:", usage_line(record_usage(a.five, a.week, a.resets)))
 
 
 def cmd_status(a):
@@ -962,6 +968,9 @@ def main():
     c.add_argument("--reason")
     c.add_argument("--cwd")
     c.add_argument("--copy-workspace", action="store_true")
+    c.add_argument("--five", type=float, help="5-hour %% you just read (desktop get_usage)")
+    c.add_argument("--week", type=float, help="weekly %% you just read")
+    c.add_argument("--resets", help="5-hour reset time, HH:MM")
     f = sub.add_parser("finalize")
     f.add_argument("folder")
     f.add_argument("--no-zip", action="store_true")

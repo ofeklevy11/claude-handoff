@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Session handoff for Claude Code: detect the plan limit before it hits, stop, and continue in a new session or account with full context.",
-    "version": "1.0.2"
+    "version": "1.0.3"
   },
   "plugins": [
     {
       "name": "handoff",
       "description": "Detects when the 5-hour window or weekly limit is about to run out, stops the work and prepares a handoff folder plus a ready prompt for a new session or another subscription.",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "author": {
         "name": "Ofek Levy"
       },

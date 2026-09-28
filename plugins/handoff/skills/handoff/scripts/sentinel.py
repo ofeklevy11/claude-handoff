@@ -168,7 +168,8 @@ def decide(event, sid, now, cfg, st, usage, desktop, terminal=False):
     return (f"[handoff-sentinel] בדיקת מכסה שקטה: קרא את mcp__ccd_session_mgmt__get_usage (לא טעון? "
             f"ToolSearch \"select:mcp__ccd_session_mgmt__get_usage\"). "
             f"5 שעות ≥{cfg['five_hour']['act']}% או שבועי ≥{cfg['seven_day']['act']}% → עוצרים את העבודה: "
-            f"סיים רק את הפעולה שבאמצע והפעל את הסקיל handoff. "
+            f"סיים רק את הפעולה שבאמצע והפעל את הסקיל handoff, ובאיסוף העבר את הקריאה: "
+            f"`sh \"{RUN}\" collect --reason \"...\" --five N --week N --resets HH:MM` ; "
             f"5 שעות ≥{cfg['hot_from']}% → רשום את הקריאה: `sh \"{RUN}\" note --five N --week N --resets HH:MM` "
             f"(מקצר את הבדיקה הבאה). אחרת: המשך בשקט, בלי להזכיר את הבדיקה למשתמש")
 

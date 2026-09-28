@@ -35,6 +35,8 @@ curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/main/inst
 זהו. פותחים **סשן חדש**, ו-handoff פעיל. לא צריך לערוך הגדרות: הסקיל וה-hooks נטענים מהפלאגין.
 דרישות: Python 3.8 ומעלה. ב-Windows צריך גם Git Bash, שכבר מגיע עם Claude Code.
 
+**נבדק על:** Windows 11, אפליקציית הדסקטופ של Claude Code 2.1.280 (כולל תרגיל חי מקצה לקצה). Mac ו-Linux: הקוד חוצה-פלטפורמות אבל עוד לא נבדק שם, [דוח השחרור](RELEASE-REPORT.html).
+
 ## מה קורה
 
 | מתי | מה Claude עושה |
@@ -97,7 +99,7 @@ curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/main/inst
 ## בדיקות
 
 ```bash
-python tests/run_tests.py        # 99 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
+python tests/run_tests.py        # 101 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
                                  # hook כתהליך אמיתי, גשר ה-statusline, pipeline מלא עם שער חיובי ושלילי, תרגיל
 python tests/install_test.py     # התקנה אמיתית של הפלאגין לתיקיית הגדרות זמנית (בלי לגעת בשלך)
 python tests/harness_test.py     # תהליך Claude Code אמיתי: הפלאגין נטען, ה-hook רץ, וההודעה מוזרקת למודל. בלי עלות
@@ -131,7 +133,7 @@ paste into a new session or another account. You pick up exactly where you left 
 - **Try it:** tell Claude "run a handoff drill". The threshold drops to 1% for 30 minutes, so the next session
   stops after a minute of work and produces a real handoff. The drill switches itself off afterwards.
 - Requires Python 3.8+ (and Git Bash on Windows, which Claude Code already uses). Everything stays local.
-- Tests: `python tests/run_tests.py` (offline, 99 checks), `tests/install_test.py` (real plugin install
+- Tests: `python tests/run_tests.py` (offline, 101 checks), `tests/install_test.py` (real plugin install
   into a throwaway config), `tests/harness_test.py` (real Claude Code process: plugin loads, hook fires, stop
   message is injected; free), `tests/e2e.py` (real headless Claude session: must stop mid-task and pass the gate).
 

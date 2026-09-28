@@ -1,0 +1,186 @@
+<title>שחרור claude-handoff 1.0.3</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Secular+One&display=swap">
+<style>
+:root{
+  --ground:#F3F5F2; --surface:#FFFFFF; --sunk:#E8ECE7; --line:#D5DCD5;
+  --ink:#15201B; --ink2:#46544D; --ink3:#6B7871;
+  --accent:#0D6B5B; --accent-soft:#DCEEE8;
+  --ok:#1E7A4B; --ok-soft:#E0F1E7; --warn:#9A5B00; --warn-soft:#FBEFD9; --bad:#B42318; --bad-soft:#FBE4E1;
+  --display:"Secular One","IBM Plex Sans Hebrew",system-ui,sans-serif;
+  --body:"IBM Plex Sans Hebrew",system-ui,"Segoe UI",Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E1412; --surface:#151D1A; --sunk:#1C2622; --line:#2A3631;
+    --ink:#E4ECE8; --ink2:#B3C0BA; --ink3:#8A9892;
+    --accent:#4CC2A8; --accent-soft:#16332C;
+    --ok:#5BCB8E; --ok-soft:#143024; --warn:#E6B45C; --warn-soft:#352A14; --bad:#F2877C; --bad-soft:#3A1C19;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E1412; --surface:#151D1A; --sunk:#1C2622; --line:#2A3631;
+  --ink:#E4ECE8; --ink2:#B3C0BA; --ink3:#8A9892;
+  --accent:#4CC2A8; --accent-soft:#16332C;
+  --ok:#5BCB8E; --ok-soft:#143024; --warn:#E6B45C; --warn-soft:#352A14; --bad:#F2877C; --bad-soft:#3A1C19;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.65;padding-inline:20px;padding-block:32px 64px}
+.wrap{max-width:900px;margin-inline:auto;display:flex;flex-direction:column;gap:40px}
+h1,h2{font-family:var(--display);font-weight:400;text-wrap:balance;margin:0;line-height:1.2}
+h1{font-size:clamp(28px,5vw,40px)}
+h2{font-size:24px;display:flex;align-items:baseline;gap:10px}
+h2 .n{font-family:var(--mono);font-size:14px;color:var(--ink3)}
+p{margin:0;max-width:68ch}
+code,.mono{font-family:var(--mono);font-size:.88em;direction:ltr;unicode-bidi:isolate}
+a{color:var(--accent)}
+.eyebrow{font-size:13px;letter-spacing:.06em;color:var(--ink3);font-weight:600}
+header{display:flex;flex-direction:column;gap:10px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;color:var(--ink2);font-size:14px}
+section{display:flex;flex-direction:column;gap:16px}
+.verdict{background:var(--surface);border:1px solid var(--line);border-inline-start:6px solid var(--ok);border-radius:10px;padding:22px 24px;display:flex;flex-direction:column;gap:14px}
+.verdict .big{font-family:var(--display);font-size:22px}
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.lane{border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.lane.ok{background:var(--ok-soft)} .lane.warn{background:var(--warn-soft)}
+.lane b{font-size:15px}
+.lane.ok b{color:var(--ok)} .lane.warn b{color:var(--warn)}
+.lane span{font-size:14px;color:var(--ink2)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:15px}
+th,td{text-align:start;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:13px;color:var(--ink3);font-weight:600;background:var(--sunk)}
+tr:last-child td{border-bottom:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;direction:ltr;unicode-bidi:isolate}
+.pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.warn{background:var(--warn-soft);color:var(--warn)} .pill.bad{background:var(--bad-soft);color:var(--bad)}
+.timeline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border-inline-start:2px solid var(--line)}
+.timeline li{position:relative;padding:4px 18px 14px 0;padding-inline-start:18px;display:grid;grid-template-columns:62px 1fr;gap:10px}
+.timeline li::before{content:"";position:absolute;inset-inline-start:-6px;top:11px;width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.timeline .t{font-family:var(--mono);color:var(--ink3);font-size:14px}
+.issues{display:flex;flex-direction:column;gap:10px}
+.issue{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:start}
+.issue .pill{margin-top:3px}
+.issue h3{margin:0;font-size:16px;font-weight:600}
+.issue p{grid-column:2;color:var(--ink2);font-size:15px}
+.steps{margin:0;padding-inline-start:22px;display:flex;flex-direction:column;gap:8px}
+.cmd{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap}
+.cmd pre{margin:0;flex:1 1 320px;background:var(--sunk);border-radius:8px;padding:12px 14px;overflow-x:auto;direction:ltr;text-align:left;font-family:var(--mono);font-size:14px}
+button{font-family:var(--body);font-size:14px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:0 14px;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+footer{color:var(--ink3);font-size:13px;border-top:1px solid var(--line);padding-top:16px}
+@media (max-width:520px){ .timeline li{grid-template-columns:1fr;gap:0} }
+</style>
+
+<div class="wrap" dir="rtl" lang="he">
+
+<header>
+  <div class="eyebrow">claude-handoff · דוח שחרור · 28.09.2026, 16:25</div>
+  <h1>claude-handoff מוכן לשחרור ל-Claude Code בדסקטופ</h1>
+  <div class="meta">
+    <span>גרסה <span class="num">1.0.3</span></span>
+    <span><a href="https://github.com/ofeklevy11/claude-handoff">github.com/ofeklevy11/claude-handoff</a> · ציבורי</span>
+    <span>נבדק על Windows 11, Claude Code <span class="num">2.1.280</span></span>
+  </div>
+</header>
+
+<section class="verdict" aria-labelledby="v">
+  <div class="eyebrow" id="v">פסק דין</div>
+  <div class="big">כן, לשחרר. בתנאי שה-README אומר במפורש איפה זה נבדק ואיפה עדיין לא.</div>
+  <p>כל שרשרת הזיהוי והמסירה נבדקה חיה באפליקציה, בסשן אמיתי: הזיהוי, ההזרקה למודל, העצירה באמצע משימה, תיקיית handoff שעוברת את השער, וכיבוי עצמי של התרגיל. נמצאו 12 באגים, וכולם תוקנו. מה שנשאר הן מגבלות ידועות שכתובות ב-README, לא באגים.</p>
+  <div class="split">
+    <div class="lane ok"><b>מוכן עכשיו</b><span>אפליקציית הדסקטופ ב-Windows, עם Python 3.8+ ו-Git Bash (שמגיעים עם Claude Code)</span></div>
+    <div class="lane warn"><b>לפני "שחרור מלא" לכל הפלטפורמות</b><span>בדיקה על Mac ו-Linux, e2e בתהליך נפרד, ואימות על משימה מתוזמנת אמיתית</span></div>
+  </div>
+</section>
+
+<section aria-labelledby="drill">
+  <h2 id="drill">התרגיל, היום בסשן חי</h2>
+  <p>התרגיל רץ בסשן הזה עצמו, באפליקציית הדסקטופ, עם הפלאגין שהותקן מ-GitHub. לא הייתה סימולציה ולא סוכן-משנה.</p>
+  <ol class="timeline">
+    <li><span class="t">16:02</span><span>ה-sentinel הזריק בדיקה שקטה עם הסף הרגיל. <code>get_usage</code> החזיר 5 שעות <b>4%</b> ושבועי 8%, ולכן העבודה המשיכה.</span></li>
+    <li><span class="t">16:03</span><span><code>drill on --minutes 10</code>: הסף ירד ל-1%, ובמקביל התחלתי לאסוף נתונים לדוח הזה.</span></li>
+    <li><span class="t">16:04</span><span>אחרי קריאת כלי, ה-hook הזריק: "[תרגיל handoff: הסף הורד זמנית ל-1%] בדיקת מכסה שקטה…". קריאה ל-<code>get_usage</code> החזירה 4%, מעל הסף. עצרתי את העבודה על הדוח.</span></li>
+    <li><span class="t">16:04</span><span><code>collect</code> מצא לבד את הסשן: 4 הודעות משתמש, 37 קבצים, git נקי. 0 סודות דלפו, אף שבתמליל עצמו יש מפתחות.</span></li>
+    <li><span class="t">16:06</span><span>HANDOFF.md מולא, ו-<code>finalize</code> החזיר <b>GATE: PASS</b> (29 עברו, אזהרה אחת צפויה). נוצר zip של <span class="num">29KB</span>, ו-"DRILL: completed": התרגיל נכבה לבד.</span></li>
+  </ol>
+  <p>התיקייה: <code>C:\Users\HP\Desktop\handoffs\2026-09-28_1604_claude-handoff-release</code></p>
+</section>
+
+<section aria-labelledby="tests">
+  <h2 id="tests">מה נבדק</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>בדיקה</th><th>מה היא מוכיחה</th><th>תוצאה</th></tr></thead>
+    <tbody>
+      <tr><td>חבילה אופליין <code>run_tests.py</code></td><td>צנזור סודות (10 אמיתיים מול 5 קוד תמים), כל החלטות ה-sentinel, ה-hook כתהליך, גשר ה-statusline, pipeline מלא ושער שחייב להיכשל בכל שבירה, תרגיל, קריאת מכסה בכותרת</td><td><span class="num">101/101</span> <span class="pill ok">עבר</span></td></tr>
+      <tr><td>מאמת רשמי <code>claude plugin validate</code></td><td>ה-manifest של הפלאגין ושל ה-marketplace תקינים</td><td><span class="pill ok">עבר</span></td></tr>
+      <tr><td>התקנה מ-GitHub לתיקייה מבודדת</td><td>משתמש זר מתקין בשתי פקודות, הכל מופעל בלי לערוך הגדרות, <code>run.sh</code> מגיע עם LF</td><td><span class="num">15/15</span> <span class="pill ok">עבר</span></td></tr>
+      <tr><td>שרשרת עדכון</td><td>1.0.0 → 1.0.1 → 1.0.2 → 1.0.3 דרך <code>claude plugin update</code></td><td><span class="pill ok">עבר</span></td></tr>
+      <tr><td><code>harness_test.py --installed</code></td><td>תהליך Claude Code אמיתי עם ההגדרות שלך טוען את הפלאגין המותקן ומזריק למודל את העצירה (טרמינל) ואת הבדיקה (דסקטופ)</td><td><span class="num">10/10</span> <span class="pill ok">עבר</span></td></tr>
+      <tr><td>מודל חי באמצע משימה ב-84%</td><td>סוכן נפרד קיבל את הודעת ה-hook האמיתית: עצר ב-2 מתוך 6 קבצים, הכין handoff, לא המשיך במשימה</td><td>gate <span class="num">30/30</span>, פעמיים <span class="pill ok">עבר</span></td></tr>
+      <tr><td>קבלה מסשן ריק</td><td>סוכן בלי הקשר קיבל רק PROMPT.txt, הבין משימה, נקודת עצירה וצעד הבא, ועצר לפני צעדי 🔒</td><td><span class="num">5/5</span> בדיקות אימות <span class="pill ok">עבר</span></td></tr>
+      <tr><td>התרגיל החי (למעלה)</td><td>כל השרשרת בסשן דסקטופ אמיתי</td><td>gate <span class="num">29/29</span> <span class="pill ok">עבר</span></td></tr>
+      <tr><td><code>e2e.py</code> בתהליך נפרד</td><td>סשן headless מלא עם מודל</td><td><span class="pill warn">לא רץ</span> (401: דורש <code>/login</code> בטרמינל)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section aria-labelledby="bugs">
+  <h2 id="bugs">הבעיות שנמצאו <span class="n">12 · 12 תוקנו</span></h2>
+  <div class="issues">
+    <div class="issue"><span class="pill ok">תוקן</span><h3>חלקי מפתחות אמיתיים שלך בקובץ הבדיקות</h3><p>השתמשתי בהתחלה של טוקן Meta, של מפתח OpenRouter ושל טוקן מקומי בתור "דוגמאות סוד". הוחלפו בערכים מזויפים, והיסטוריית git אופסה לפני הפרסום. שום דבר לא יצא מהמחשב.</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>נקודה אחרי הפקודה בהודעת העצירה</h3><p>המודל העתיק את הנקודה, ו-<code>collect</code> נכשל. הפקודה עכשיו בתוך backticks, וה-CLI מתעלם מפיסוק מועתק. נמצא ע"י מבחן המודל החי.</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>צנזור שבר קוד בעותק ה-workspace</h3><p><code>const tokens = …</code> זוהה כסוד ונמחק. ה-workspace מועתק עכשיו כמו שהוא, הכללים הודקו, והשער מזהיר בלבד על סודות בקוד.</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>מגבלת 260 התווים של נתיבים ב-Windows</h3><p>העתקה עמוקה נכשלה. כל קלט/פלט עובר דרך נתיבים ארוכים (<code>\\?\</code>).</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>סיומות שורה CRLF בשכפול ב-Windows</h3><p>אצלך <code>autocrlf=true</code>, וזה היה שובר את <code>run.sh</code>. נוסף <code>.gitattributes</code>, ונבדק על שכפול אמיתי.</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>דוחות של סוכני-משנה נספרו כהודעות משתמש</h3><p>עכשיו מסוננים. מקור האמת "מה המשתמש כתב" נשאר נקי.</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>ארטיפקטים שגויים</h3><p>כתובות מקטלוג הסוגים ומפעולות "list" נספרו כארטיפקטים שפורסמו (1.0.1). עכשיו רק פרסום אמיתי נספר.</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>מילוי המסמך דרך סקריפט נשבר על נתיבי Windows</h3><p>הסקיל מורה עכשיו למלא עם Read ו-Write או Edit (1.0.2).</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>ריצות headless (<code>-p</code>) דולגו תמיד</h3><p>זה נכון להגנה על משימות מתוזמנות, אבל מנע בדיקות. נוסף מעקף מפורש: <code>HANDOFF_UNATTENDED=1</code>.</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>קטלוג ה-marketplace ומניין סעיפים</h3><p>סוגי artifacts נספרו כתוצרים, והתיעוד אמר 9 סעיפים במקום 10. שניהם תוקנו ומכוסים בבדיקות.</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>גרסה ישנה על הדסקטופ עלולה ליצור שני sentinels</h3><p>תיקיית ה-staging הישנה נמחקה, ונבדק שהגרסה הישנה לא הותקנה אצלך.</p></div>
+    <div class="issue"><span class="pill ok">תוקן</span><h3>בדסקטופ, שורת המכסה בכותרת ה-handoff יצאה "לא נמדד"</h3><p>נמצא בתרגיל היום: הקריאה של המודל נרשמה רק מ-60% ומעלה. ב-1.0.3 <code>collect</code> מקבל <code>--five</code>, <code>--week</code> ו-<code>--resets</code>, והודעת הבדיקה מורה למודל להעביר את מה שקרא. שתי בדיקות חדשות מכסות את זה.</p></div>
+  </div>
+</section>
+
+<section aria-labelledby="limits">
+  <h2 id="limits">מגבלות ידועות, לכתוב ב-README</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>מגבלה</th><th>ההשפעה</th><th>מה עושים</th></tr></thead>
+    <tbody>
+      <tr><td>Mac ו-Linux לא נבדקו</td><td>הקוד חוצה-פלטפורמות (sh, pathlib, python3), אבל לא רץ שם אף פעם</td><td>להריץ <code>run_tests.py</code> ו-<code>install_test.py</code> על Mac לפני שכותבים "כל הפלטפורמות"</td></tr>
+      <tr><td>טרמינל: זיהוי 5 השעות</td><td>עובד רק עם Claude Code שמעביר <code>rate_limits</code> ל-statusline (2.1.280 כן, ה-2.1.77 שלך לא), ורק אחרי הסכמה חד-פעמית לגשר</td><td>לעדכן Claude Code בטרמינל. באפליקציה זה עובד מיד</td></tr>
+      <tr><td>משימות מתוזמנות</td><td>מתוכננות להידלג כי הן מסומנות כלא-מושגחות. לא אומת על ריצה מתוזמנת אמיתית</td><td>לבדוק במשימה הבאה של Maili או Linky ש-<code>~/.claude/handoff/state</code> לא מראה בדיקות</td></tr>
+      <tr><td>מרווח הבדיקה בדסקטופ</td><td>בדיקה כל 15 דקות (כל 5 מעל 60%). בצריכה קיצונית אפשר לעבור את 80% בכ-5% עד שהבדיקה תופסת</td><td>נשאר מרווח של כ-15%, מספיק ל-handoff. לא דורש שינוי</td></tr>
+      <tr><td>תרגיל פעיל חל על כל הסשנים</td><td>סשן אחר שעובד באותן דקות ייעצר גם הוא</td><td>הוא נכבה לבד אחרי handoff, או <code>drill off</code></td></tr>
+      <tr><td>דרישות</td><td>Python 3.8+ ו-Git Bash ב-Windows. בלי Python ה-hook שקט ולא נשבר</td><td>כבר כתוב ב-README</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section aria-labelledby="next">
+  <h2 id="next">כדי להגיע ל"שחרור מלא"</h2>
+  <ol class="steps">
+    <li>להריץ פעם אחת <code>claude</code> ו-<code>/login</code> בטרמינל, ואז <code>python tests/e2e.py</code>: שני סשנים headless אמיתיים, בערך 2 דקות.</li>
+    <li>להריץ את חבילת הבדיקות על Mac (יש מספיק שמשתמש אחד מהקורס יריץ <code>python tests/run_tests.py</code>).</li>
+          </ol>
+  <div class="cmd">
+    <pre id="installcmd">claude plugin marketplace add ofeklevy11/claude-handoff &amp;&amp; claude plugin install handoff@claude-handoff</pre>
+    <button id="copybtn" type="button">העתק</button>
+  </div>
+</section>
+
+<footer>הופק ע"י Claude בסשן "סקיל Handoff לסיום מנוי/סשן". כל המספרים בדוח נמדדו היום. תיקיית ה-handoff של הסשן הזה נמצאת ב-<code>Desktop\handoffs\2026-09-28_1604_claude-handoff-release</code>.</footer>
+</div>
+
+<script>
+document.getElementById('copybtn').addEventListener('click', function(){
+  var b=this, t=document.getElementById('installcmd').textContent;
+  function done(ok){ b.textContent = ok ? 'הועתק' : 'סמן והעתק'; setTimeout(function(){ b.textContent='העתק'; }, 1800); }
+  try { navigator.clipboard.writeText(t).then(function(){done(true)}, function(){ selectIt(); done(false); }); }
+  catch(e){ selectIt(); done(false); }
+  function selectIt(){ var r=document.createRange(); r.selectNodeContents(document.getElementById('installcmd')); var s=getSelection(); s.removeAllRanges(); s.addRange(r); }
+});
+</script>
