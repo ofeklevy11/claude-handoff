@@ -109,6 +109,23 @@ CODE = [
     "token_count=12345678",
     'tokenizer_path = "models/v1/tokenizer.json"',
     'API_TOKEN_URL = "https://api.example.com/v2/token"',
+    # 1.0.4 audit: ordinary code that the first 1.0.4 rules wrongly took for secrets
+    "const token = tokens[0];",
+    "password = hash_md5(raw)",
+    "api_key=config.api_key_v2",
+    "secretAccessKey: env.R2_SECRET_ACCESS_KEY,",
+    "self.password = password2",
+    "const STORAGE_KEY = 'todos-vuejs-2.0'",
+    "postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/app",
+    "fetch(`/api?token=${encodeURIComponent(token)}`)",
+    "SESSION_TOKEN_TTL_MS=864000000000",
+    'const TOKEN_KEY = "auth_token_v2";',
+    'export const CACHE_KEY_PREFIX = "user_profile_v2_";',
+    "LOCAL_STORAGE_KEY: 'theme-pref-v2'",
+    'API_KEY_HEADER = "x-api-key-v2"',
+    "token = tokens[1024]",
+    "password: user.password2",
+    '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg+EAA' + "A" * 48 + '/EAA' + "B" * 44 + '==">',
 ]
 for t in SECRETS:
     r = h.redact(t, count=False)
@@ -539,9 +556,33 @@ if folder:
         rc6, out6 = fin(pf, allow_partial=True)
         check("#6 --allow-partial passes once the gap is written down", rc6 == 0)
         check("#6 PROMPT.txt carries the partial-copy warning", "עותק חלקי" in (pf / "PROMPT.txt").read_text(encoding="utf-8"))
+        (pf / "HANDOFF.md").write_text(pmd.replace("clip.bin", "a-file"), encoding="utf-8")
+        check("A8 --allow-partial also needs the list of missing files, not just the words", fin(pf, allow_partial=True)[0] != 0)
+        (pf / "HANDOFF.md").write_text(pmd, encoding="utf-8")
     else:
-        for n_ in ("#6 HANDOFF note", "X-5 skipped file named", "#6 FAIL", "#6 flag alone", "#6 flag passes", "#6 PROMPT"):
+        for n_ in ("#6 HANDOFF note", "X-5 skipped file named", "#6 FAIL", "#6 flag alone", "#6 flag passes", "#6 PROMPT",
+                   "A8 list needed"):
             check(f"{n_} (collect crashed)", False)
+    check("A1 a key in a UTF-16 workspace file -> FAIL",
+          gate(lambda x: x, ws={"notes.txt": (f"K={KEY}" + chr(13) + chr(10)).encode("utf-16")}) != 0)
+    _mx, h.MAX_FILE_COPY = h.MAX_FILE_COPY, 4000
+    try:
+        big_rc = gate(lambda x: x, ws={"server.log": "x" * 5000 + KEY})
+    finally:
+        h.MAX_FILE_COPY = _mx
+    check("A9 a workspace file too large to scan (copied in by hand) -> FAIL, never shipped unscanned", big_rc != 0)
+    dl = TMP / "glate"
+    shutil.copytree(folder, dl)
+    ml_ = json.loads((dl / "manifest.json").read_text(encoding="utf-8"))
+    ml_["session_id"] = "late-drill"
+    (dl / "manifest.json").write_text(json.dumps(ml_, ensure_ascii=False), encoding="utf-8")
+    (state / "state").mkdir(exist_ok=True)
+    (state / "state" / "late-drill.json").write_text(json.dumps({"first_seen": now - 3600, "drill_started": now - 7200}),
+                                                     encoding="utf-8")
+    fin(dl)  # the drill window ran out while HANDOFF.md was being written: no drill.json any more
+    stl = json.loads((state / "state" / "late-drill.json").read_text(encoding="utf-8"))
+    check("A10 a drill whose window ran out mid-handoff is still a drill handoff (real protection stays on)",
+          not stl.get("handoff_done") and stl.get("drill_handoff"))
 
     section("1.0.4 · a pasted private key is redacted before anything is clipped (#9)")
     body = "\n".join(("MIIEowIBAAKCAQEAq8Zr3Kp9Lm2Qx7Vb4Nw1Hs6T" + "j0Rf5Yc8Ud3Ge" * 3)[:64] for _ in range(25))
@@ -737,6 +778,82 @@ finally:
 check("#5 over the size cap: the big file is skipped, later small files still come along",
       crep.get("truncated") and (cdest / "b_small.txt").is_file())
 
+section("1.0.4 audit · UTF-16 text, false positives, .env/ folders, unreadable folders, memory links (A1-A6)")
+u16 = f"ANTHROPIC_API_KEY={KEY}\r\n"
+aw = tree(SHORT / "aw", {"ps-bom.txt": u16.encode("utf-16"), "ps-nobom.txt": u16.encode("utf-16-le"),
+                          "u32.txt": u16.encode("utf-32"), "src/ok.js": "const a = 1\n"})
+arep, adest = copyws(aw, "ad")
+check("A1 a key in a UTF-16/UTF-32 text file (PowerShell 5.1 output) is caught before copying",
+      not any((adest / n).exists() for n in ("ps-bom.txt", "ps-nobom.txt", "u32.txt")) and (adest / "src" / "ok.js").is_file())
+fpw = tree(SHORT / "fpw", {f"src/f{i}.js": line + "\n" for i, line in enumerate(CODE)})
+fprep, fpdest = copyws(fpw, "fpd")
+check(f"A2 ordinary source files are never left out as 'secrets' ({len(CODE)} code shapes, incl. a base64 image)",
+      not fprep.get("skipped_secret") and len(list((fpdest / "src").glob("*.js"))) == len(CODE))
+vw = tree(SHORT / "vw", {".env/pyvenv.cfg": "home = x\n", ".env/Lib/x.py": "x = 1\n", "app.py": "print(1)\n"})
+vrep, vdest = copyws(vw, "vd")
+check("A3 a `.env/` folder (virtualenv) is left out at copy, the same rule the gate applies",
+      not (vdest / ".env").exists() and (vdest / "app.py").is_file() and any(".env" in x for x in vrep.get("skipped_secret", [])))
+uw = tree(SHORT / "uw", {"ok.txt": "a\n", "locked/important.py": "x = 1\n"})
+_scandir = h.os.scandir
+
+
+def _deny(p="."):
+    if Path(str(p)).name == "locked":
+        raise PermissionError(13, "Access is denied", str(p))
+    return _scandir(p)
+
+
+h.os.scandir = _deny
+try:
+    urep, udest = copyws(uw, "ud")
+finally:
+    h.os.scandir = _scandir
+check("A4 a folder that cannot be read is recorded as an error (a hole in the copy), not skipped silently",
+      any("locked" in x for x in urep.get("errors", [])))
+mproj = tree(SHORT / "mproj", {"CLAUDE.md": "project notes\n"})
+mout = tree(SHORT / "mout", {"notes.md": "OUTSIDE-MEMORY\n"})
+mlink = False
+try:
+    if os.name == "nt":
+        import _winapi
+        _winapi.CreateJunction(str(mout), str(mproj / "memory"))
+    else:
+        os.symlink(mout, mproj / "memory", target_is_directory=True)
+    mlink = True
+except Exception:  # noqa: BLE001
+    pass
+mt = SHORT / "mt" / "s.jsonl"
+mt.parent.mkdir(parents=True, exist_ok=True)
+try:
+    mcopied = h.copy_memory(mproj, mt, SHORT / "mdest")
+except Exception as e:  # noqa: BLE001
+    mcopied = [{"to": f"crash {e!r}", "from": "OUTSIDE"}]
+check(f"A5 project memory never follows a link out of the project (link made: {mlink})",
+      mlink and not any(c["to"].endswith("notes.md") or "crash" in c["to"] for c in mcopied)
+      and any(c["to"].endswith("CLAUDE.md") for c in mcopied))
+try:
+    (os.rmdir if os.name == "nt" else os.unlink)(mproj / "memory")
+except OSError:
+    pass
+_home = h.HOME
+h.HOME = Path("C:/Users/Tester") if os.name == "nt" else Path("/home/tester")
+try:
+    hs = str(h.HOME)
+    pt = h.portable(f"see {hs}. and **{hs}** and {hs}X-other") if hasattr(h, "portable") else "(no portable() in this version)"
+finally:
+    h.HOME = _home
+check("A6 the home folder becomes ~ even at the end of a sentence or in bold (but not inside a longer name)",
+      pt == f"see ~. and **~** and {hs}X-other")
+if os.name != "nt":
+    xw = tree(SHORT / "xw", {"run.sh": "#!/bin/sh\necho hi\n"})
+    os.chmod(xw / "run.sh", 0o755)
+    xrep, xdest = copyws(xw, "xd")
+    import stat as _st2
+    check("#30 workspace copies are yours only and scripts stay executable",
+          _st2.S_IMODE(os.stat(xdest / "run.sh").st_mode) == 0o700)
+else:
+    check("#30 workspace copies are yours only and scripts stay executable (POSIX only; n/a on Windows)", True)
+
 # ------------------------------------------------------------------ 1.0.4: statusline bridge
 section("1.0.4 · statusline bridge: never damages settings.json, restores it exactly, removes itself (#19-#24)")
 sp_ = cfgdir / "settings.json"
@@ -789,8 +906,15 @@ with tempfile.TemporaryDirectory() as tmp:
     check(f"#24 the original statusline runs in the shell Claude Code uses (bash): got {r_.stdout.strip()[:30]!r}",
           r_.stdout.strip() == b"42")
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
-check("#23 README 'removal': bridge off first, the tee's own --off, marketplace remove, ~/.claude/handoff",
-      "statusline_tee.py --off" in readme and "marketplace remove claude-handoff" in readme and ".claude/handoff" in readme)
+check("#23 README 'removal': bridge off first, the tee's own --off (a path PowerShell and bash expand), marketplace remove",
+      '"$HOME/.claude/handoff/statusline_tee.py" --off' in readme and "marketplace remove claude-handoff" in readme
+      and ".claude/handoff" in readme and "python ~/" not in readme)
+fresh_bridge()
+(state / "statusline_tee.py").write_text("# the tee a 1.0.3 bridge left behind" + chr(10), encoding="utf-8")
+hook(json.dumps({"session_id": "tee-refresh", "hook_event_name": "UserPromptSubmit"}).encode())
+check("A7 a bridge enabled by an older version gets the current tee (so --off works after an update)",
+      (state / "statusline_tee.py").read_bytes() == (SCRIPTS / "statusline_tee.py").read_bytes())
+fresh_bridge()
 
 # ------------------------------------------------------------------ 1.0.4: drill, one session only
 section("1.0.4 · the drill hits one session only (#25 #27 #28)")

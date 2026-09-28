@@ -65,7 +65,7 @@ Windows, macOS ו-Linux, עם Python 3.8 ו-3.12. התקנה חיה ובדיקת
 └── workspace/        ← עותק, רק אם הסשן עבד בתיקייה זמנית של האפליקציה (בלי סודות ובלי קישורים החוצה)
 ```
 
-לפני מסירה עובר **שער מכני**: אין סעיפים ריקים, כל סעיף פעם אחת, יש צעדים ממוספרים, כל הנתיבים קיימים,
+לפני מסירה עובר **שער מכני**: אין סעיפים ריקים, כל סעיף פעם אחת, יש צעדים ממוספרים (ונתיב שלא קיים מקבל אזהרה),
 העותק של תיקייה זמנית שלם, ו**אין סודות בשום קובץ**, כולל `workspace/`. מפתחות וטוקנים במסמכים מצונזרים,
 ו-handoff עם סוד לא עובר ולא נוצר לו ZIP.
 
@@ -122,14 +122,15 @@ claude plugin update handoff@claude-handoff
 
 1. חיברת את גשר ה-statusline בטרמינל? קודם אמור ל-Claude "כבה את גשר ה-statusline של handoff".
 2. `/plugin uninstall handoff@claude-handoff`, ואז `claude plugin marketplace remove claude-handoff`.
-3. כבר הסרת והגשר עדיין פעיל? `python ~/.claude/handoff/statusline_tee.py --off` מחזיר את ה-statusline
+3. כבר הסרת והגשר עדיין פעיל? `python "$HOME/.claude/handoff/statusline_tee.py" --off` (PowerShell ו-bash; ב-cmd:
+   `python "%USERPROFILE%\.claude\handoff\statusline_tee.py" --off`; ב-Mac: `python3`) מחזיר את ה-statusline
    המקורי בדיוק ומוחק את הגשר.
 4. אופציונלי: למחוק את `~/.claude/handoff` (מצב פנימי). תיקיות ה-handoff ב-`Desktop/handoffs` שלך, למחוק או לשמור.
 
 ## בדיקות
 
 ```bash
-python tests/run_tests.py        # 196 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
+python tests/run_tests.py        # 224 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
                                  # hook כתהליך אמיתי, גשר ה-statusline, pipeline מלא עם שער חיובי ושלילי, תרגיל,
                                  # ו-1.0.4: קישורים, סודות ב-workspace, ZIP נייד, git, הזרקת מבנה, סשן אחד בתרגיל
 python tests/install_test.py     # התקנה אמיתית של הפלאגין לתיקיית הגדרות זמנית (בלי לגעת בשלך)
@@ -161,7 +162,7 @@ paste into a new session or another account. You pick up exactly where you left 
   pass-through bridge. Your statusline looks the same, and `statusline off` restores settings.json exactly and
   removes the bridge. An invalid settings.json is never touched.
 - **Gate:** a handoff is only delivered when `finalize` prints `GATE: PASS`. That requires no empty or duplicate
-  sections, numbered next steps, existing paths, a complete copy of a temporary work dir, and zero secrets in
+  sections, numbered next steps (a missing path only warns), a complete copy of a temporary work dir, and zero secrets in
   any text file, `workspace/` included. The ZIP leaves out `CLAUDE.local.md` and auto-memory, and shows your home
   dir as `~`. Collected data (file names, git, logs, file contents) is marked as data, never instructions.
 - **Try it:** tell Claude "run a handoff drill". The threshold drops to 1% for this session only (default 30 min,
@@ -169,9 +170,10 @@ paste into a new session or another account. You pick up exactly where you left 
 - **Security note for 1.0.3 and earlier:** nothing was ever sent anywhere, but a handoff ZIP could include a
   sensitive file from `workspace/`. Don't share ZIPs made by old versions. Update:
   `claude plugin marketplace update claude-handoff && claude plugin update handoff@claude-handoff`, then open a
-  new session. Uninstalling with the terminal bridge on? `python ~/.claude/handoff/statusline_tee.py --off`.
+  new session. Uninstalling with the terminal bridge on? `python "$HOME/.claude/handoff/statusline_tee.py" --off`
+  (PowerShell or bash; `python3` on macOS).
 - Requires Python 3.8+ (and Git Bash on Windows, which Claude Code already uses). Everything stays local.
-- Tests: `python tests/run_tests.py` (offline, 196 checks), `tests/install_test.py` (real plugin install
+- Tests: `python tests/run_tests.py` (offline, 224 checks), `tests/install_test.py` (real plugin install
   into a throwaway config), `tests/harness_test.py` (real Claude Code process: plugin loads, hook fires, stop
   message is injected; free), `tests/e2e.py` (real headless Claude session: must stop mid-task and pass the gate).
 

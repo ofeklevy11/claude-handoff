@@ -176,6 +176,19 @@ def decide(event, sid, now, cfg, st, usage, desktop, terminal=False):
             f"(מקצר את הבדיקה הבאה). אחרת: המשך בשקט, בלי להזכיר את הבדיקה למשתמש")
 
 
+def refresh_tee():
+    """A statusline bridge turned on by an older version keeps its own copy of the tee: bring it up to this
+    version (so `statusline_tee.py --off` and the Git Bash pass-through work after an update). Silent."""
+    try:
+        live, new = STATE / "statusline_tee.py", Path(__file__).resolve().parent / "statusline_tee.py"
+        if live.is_file() and new.is_file() and live.read_bytes() != new.read_bytes():
+            tmp = live.with_name(f"statusline_tee.{os.getpid()}.tmp")
+            tmp.write_bytes(new.read_bytes())
+            os.replace(tmp, live)
+    except Exception:
+        pass
+
+
 def main():
     try:
         raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
@@ -198,6 +211,8 @@ def main():
         st["transcript"] = inp["transcript_path"]
     if inp.get("cwd"):
         st["cwd"] = inp["cwd"]
+    if event == "UserPromptSubmit":
+        refresh_tee()
     entry = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
     desktop = entry == "claude-desktop" or os.environ.get("HANDOFF_FORCE_DESKTOP") == "1"
     terminal = entry == "cli"
