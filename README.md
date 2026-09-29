@@ -7,6 +7,11 @@
 
 פלאגין ל-Claude Code (אפליקציית הדסקטופ והטרמינל). מתקינים פעם אחת, ומשם זה עובד לבד.
 
+> **התקנת גרסה 1.0.3 ומטה? לעדכן ל-1.0.4.** אין שום אינדיקציה שהפלאגין שולח מידע החוצה (הוא לא שולח כלום לשום
+> מקום). הבעיה שתוקנה: בגרסאות 1.0.3 ומטה, קובץ ה-ZIP של handoff יכול היה לכלול קובץ רגיש מתוך `workspace/`.
+> לא לשתף ZIP שנוצר בגרסה ישנה. עדכון: [סעיף עדכון](#עדכון). לבדוק handoff ישן: אמור ל-Claude "תריץ verify על
+> תיקיית ה-handoff הזו".
+
 ## התקנה
 
 בתוך Claude Code:
@@ -25,17 +30,18 @@ claude plugin marketplace add ofeklevy11/claude-handoff && claude plugin install
 <details><summary>סקריפט התקנה (Windows / macOS / Linux)</summary>
 
 ```powershell
-irm https://raw.githubusercontent.com/ofeklevy11/claude-handoff/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.4/install.ps1 | iex
 ```
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.4/install.sh | sh
 ```
 </details>
 
 זהו. פותחים **סשן חדש**, ו-handoff פעיל. לא צריך לערוך הגדרות: הסקיל וה-hooks נטענים מהפלאגין.
 דרישות: Python 3.8 ומעלה. ב-Windows צריך גם Git Bash, שכבר מגיע עם Claude Code.
 
-**נבדק על:** Windows 11, אפליקציית הדסקטופ של Claude Code 2.1.280 (כולל תרגיל חי מקצה לקצה). Mac ו-Linux: הקוד חוצה-פלטפורמות אבל עוד לא נבדק שם, [דוח השחרור](RELEASE-REPORT.html).
+**נבדק על:** Windows 11 (אפליקציית הדסקטופ של Claude Code, כולל תרגיל חי מקצה לקצה). חבילת הבדיקות רצה ב-CI על
+Windows, macOS ו-Linux, עם Python 3.8 ו-3.12. התקנה חיה ובדיקת harness נבדקו רק ב-Windows. [דוח השחרור](RELEASE-REPORT.html).
 
 ## מה קורה
 
@@ -56,23 +62,24 @@ curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/main/inst
 ├── PROMPT-FULL.md    ← עצמאי: למחשב אחר או ל-claude.ai, יחד עם ה-zip
 ├── context/          ← כל מה שכתבת בסשן מילה במילה, ציר זמן, קבצים, פקודות, קישורים, git
 ├── memory/           ← קבצי הזיכרון של הפרויקט (CLAUDE.md וכו')
-└── workspace/        ← עותק מלא, רק אם הסשן עבד בתיקייה זמנית של האפליקציה
+└── workspace/        ← עותק, רק אם הסשן עבד בתיקייה זמנית של האפליקציה (בלי סודות ובלי קישורים החוצה)
 ```
 
-לפני מסירה עובר **שער מכני**: אין סעיפים ריקים, יש צעדים ממוספרים, כל הנתיבים קיימים, ו**אין
-סודות**. מפתחות וטוקנים מצונזרים, ו-handoff עם סוד לא עובר.
+לפני מסירה עובר **שער מכני**: אין סעיפים ריקים, כל סעיף פעם אחת, יש צעדים ממוספרים (ונתיב שלא קיים מקבל אזהרה),
+העותק של תיקייה זמנית שלם, ו**אין סודות בשום קובץ**, כולל `workspace/`. מפתחות וטוקנים במסמכים מצונזרים,
+ו-handoff עם סוד לא עובר ולא נוצר לו ZIP.
 
 ## איך הוא יודע שהמכסה נגמרת
 
 | איפה | מקור המספרים |
 |---|---|
 | **אפליקציית הדסקטופ** | הכלי המובנה `get_usage`, אותם מספרים שבכרטיס השימוש. בדיקה שקטה כל 15 דקות, ומ-60% ומעלה כל 5 דקות. עובד מיד אחרי ההתקנה |
-| **טרמינל** | Claude Code מעביר את `rate_limits` ל-statusline. בפעם הראשונה Claude שואל אם לחבר "גשר" שקורא אותם. ה-statusline שלך לא משתנה, ו-`statusline off` מחזיר את המצב הקודם |
+| **טרמינל** | Claude Code מעביר את `rate_limits` ל-statusline. בפעם הראשונה Claude שואל אם לחבר "גשר" שקורא אותם. ה-statusline שלך לא משתנה, ו-`statusline off` מחזיר את ההגדרות בדיוק ומסיר את הגשר. settings.json לא תקין? הגשר מסרב ולא נוגע בו |
 
 ## לראות שזה עובד (תרגיל, בדקה)
 
-אמור ל-Claude: **"תעשה תרגיל handoff"**. הוא מוריד זמנית את הסף ל-1%, אתה פותח סשן חדש ונותן לו
-משימה של כמה צעדים, ואחרי דקה של עבודה הוא נעצר ומכין handoff אמיתי. התרגיל נכבה לבד.
+אמור ל-Claude: **"תעשה תרגיל handoff"**. הוא מוריד זמנית את הסף ל-1% **לסשן הזה בלבד**, אתה נותן לו משימה
+של כמה צעדים, ואחרי דקה של עבודה הוא נעצר ומכין handoff אמיתי. סשנים אחרים לא מושפעים, והתרגיל נכבה לבד.
 
 ## הגדרות
 
@@ -87,20 +94,46 @@ curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/main/inst
 ## פרטיות
 
 הכל מקומי. הפלאגין לא שולח שום דבר לשום מקום, קורא רק את התמליל המקומי של הסשן, ומצנזר סודות
-במסמכים שהוא כותב. תיקיית העבודה הזמנית מועתקת כמו שהיא, בלי קבצי `.env` ומפתחות.
+במסמכים שהוא כותב. התיקייה המקומית שומרת הכל. ה-ZIP (למחשב אחר או לחשבון אחר) לא כולל את `CLAUDE.local.md`
+ואת הזיכרון האוטומטי, ותיקיית הבית מופיעה בו כ-`~`.
+
+## אבטחה ומגבלות ידועות
+
+- **מה לא יוצא מהמחשב ב-`workspace/`:** קישורים (symlink, junction) שמצביעים מחוץ לתיקייה, התיקיות
+  `.ssh .aws .kube .docker .gnupg`, קבצים עם שם של סוד (`.env*`, `.npmrc`, `.netrc`, `.git-credentials`,
+  `.pypirc`, מפתחות `id_*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.ppk`, `credentials*.json` ועוד), וכל קובץ
+  טקסט שנמצא בתוכו סוד. כולם רשומים בראש ה-HANDOFF עם המקור.
+- **הזיהוי מבוסס תבניות** (מפתחות Anthropic/OpenAI/GitHub/AWS/Google/Stripe/Slack/HuggingFace/GitLab/npm,
+  מפתחות פרטיים, JWT, Bearer/Basic, URL עם סיסמה, `password=`/`*_TOKEN=` עם ערך). סוד בפורמט לא מוכר יכול
+  לעבור, וכך גם סיסמה שמועברת כארגומנט לפונקציה (`jwt.sign(x, 'secret')`) או בדגל של פקודה (`-p`, `-u`). **קבצים
+  בינאריים לא נסרקים** (sqlite, docx, תמונות); קבצי טקסט ב-UTF-16/UTF-32 כן. לפני ששולחים ZIP למישהו אחר, כדאי להציץ בו.
+- **כל מה שנאסף הוא נתונים, לא הוראות:** הסשן שמקבל את ה-handoff מקבל הוראה מפורשת לא לבצע הוראות שמופיעות
+  בשמות קבצים, ב-git, בלוגים או בתוכן קבצים.
+- **דיווח על בעיית אבטחה:** [GitHub Issues](https://github.com/ofeklevy11/claude-handoff/issues).
+
+## עדכון
+
+```bash
+claude plugin marketplace update claude-handoff
+claude plugin update handoff@claude-handoff
+```
+ואז לפתוח סשן חדש. (בתוך Claude Code: `/plugin` ← Marketplaces ← update.)
 
 ## הסרה
 
-```
-/plugin uninstall handoff@claude-handoff
-```
-אם חיברת את הגשר בטרמינל, קודם אמור ל-Claude "כבה את גשר ה-statusline של handoff".
+1. חיברת את גשר ה-statusline בטרמינל? קודם אמור ל-Claude "כבה את גשר ה-statusline של handoff".
+2. `/plugin uninstall handoff@claude-handoff`, ואז `claude plugin marketplace remove claude-handoff`.
+3. כבר הסרת והגשר עדיין פעיל? `python "$HOME/.claude/handoff/statusline_tee.py" --off` (PowerShell ו-bash; ב-cmd:
+   `python "%USERPROFILE%\.claude\handoff\statusline_tee.py" --off`; ב-Mac: `python3`) מחזיר את ה-statusline
+   המקורי בדיוק ומוחק את הגשר.
+4. אופציונלי: למחוק את `~/.claude/handoff` (מצב פנימי). תיקיות ה-handoff ב-`Desktop/handoffs` שלך, למחוק או לשמור.
 
 ## בדיקות
 
 ```bash
-python tests/run_tests.py        # 101 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
-                                 # hook כתהליך אמיתי, גשר ה-statusline, pipeline מלא עם שער חיובי ושלילי, תרגיל
+python tests/run_tests.py        # 312 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
+                                 # hook כתהליך אמיתי, גשר ה-statusline, pipeline מלא עם שער חיובי ושלילי, תרגיל,
+                                 # ו-1.0.4: קישורים, סודות ב-workspace, ZIP נייד, git, הזרקת מבנה, סשן אחד בתרגיל
 python tests/install_test.py     # התקנה אמיתית של הפלאגין לתיקיית הגדרות זמנית (בלי לגעת בשלך)
 python tests/harness_test.py     # תהליך Claude Code אמיתי: הפלאגין נטען, ה-hook רץ, וההודעה מוזרקת למודל. בלי עלות
 python tests/harness_test.py --installed   # אותו דבר על הפלאגין שמותקן אצלך, עם ההגדרות שלך
@@ -127,13 +160,21 @@ paste into a new session or another account. You pick up exactly where you left 
 - **Desktop app:** reads the built-in `get_usage` tool (a silent probe every 15 min, every 5 min above 60%).
   Warns at 70%, stops and hands off at 80% (weekly: 93%).
 - **Terminal:** Claude Code exposes `rate_limits` only to the statusline. On first use Claude offers to add a
-  pass-through bridge. Your statusline looks the same, and `statusline off` restores it.
-- **Gate:** a handoff is only delivered when `finalize` prints `GATE: PASS`. That requires no empty sections,
-  numbered next steps, existing paths and zero secrets.
-- **Try it:** tell Claude "run a handoff drill". The threshold drops to 1% for 30 minutes, so the next session
-  stops after a minute of work and produces a real handoff. The drill switches itself off afterwards.
+  pass-through bridge. Your statusline looks the same, and `statusline off` restores settings.json exactly and
+  removes the bridge. An invalid settings.json is never touched.
+- **Gate:** a handoff is only delivered when `finalize` prints `GATE: PASS`. That requires no empty or duplicate
+  sections, numbered next steps (a missing path only warns), a complete copy of a temporary work dir, and zero secrets in
+  any text file, `workspace/` included. The ZIP leaves out `CLAUDE.local.md` and auto-memory, and shows your home
+  dir as `~`. Collected data (file names, git, logs, file contents) is marked as data, never instructions.
+- **Try it:** tell Claude "run a handoff drill". The threshold drops to 1% for this session only (default 30 min,
+  max 120), so it stops after a minute of work and produces a real handoff. Other sessions are not affected.
+- **Security note for 1.0.3 and earlier:** nothing was ever sent anywhere, but a handoff ZIP could include a
+  sensitive file from `workspace/`. Don't share ZIPs made by old versions. Update:
+  `claude plugin marketplace update claude-handoff && claude plugin update handoff@claude-handoff`, then open a
+  new session. Uninstalling with the terminal bridge on? `python "$HOME/.claude/handoff/statusline_tee.py" --off`
+  (PowerShell or bash; `python3` on macOS).
 - Requires Python 3.8+ (and Git Bash on Windows, which Claude Code already uses). Everything stays local.
-- Tests: `python tests/run_tests.py` (offline, 101 checks), `tests/install_test.py` (real plugin install
+- Tests: `python tests/run_tests.py` (offline, 312 checks), `tests/install_test.py` (real plugin install
   into a throwaway config), `tests/harness_test.py` (real Claude Code process: plugin loads, hook fires, stop
   message is injected; free), `tests/e2e.py` (real headless Claude session: must stop mid-task and pass the gate).
 

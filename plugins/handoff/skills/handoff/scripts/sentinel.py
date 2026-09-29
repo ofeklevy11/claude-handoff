@@ -52,12 +52,14 @@ DRILL = {"five_hour": {"warn": 1, "act": 1}, "first_probe_after_minutes": 1, "pr
          "probe_minutes_hot": 1}
 
 
-def settings(now=None):
+def settings(now=None, sid=None):
     cfg = dict(DEFAULTS)
     layers = [load(STATE / "config.json", {}) or {}]
     drill = load(STATE / "drill.json", {}) or {}
-    if drill.get("until", 0) > (now or time.time()):
-        layers.append(DRILL)  # `handoff.py drill on`: stop after a minute of work, whatever the real usage
+    if drill.get("until", 0) > (now or time.time()) and sid and drill.get("session") == sid:
+        # `handoff.py drill on`: this session only stops after a minute of work, whatever the real usage
+        layers.append(DRILL)
+        cfg["drill_since"] = drill.get("since", 0)
     for layer in layers:
         for k, v in layer.items():
             if isinstance(v, dict) and isinstance(cfg.get(k), dict):
@@ -82,8 +84,8 @@ def decide(event, sid, now, cfg, st, usage, desktop, terminal=False):
     """Returns the message to inject (or None) and mutates st."""
     emitted = st.setdefault("emitted", {})
     first = st.setdefault("first_seen", now)
-    if cfg.get("drill") and now - first < 60:
-        return None  # drill: let a minute of real work happen before the stop
+    if cfg.get("drill") and now - max(first, cfg.get("drill_since", 0)) < 60:
+        return None  # drill: let a minute of real work happen (since the drill began) before the stop
     fresh = None
     if usage:
         age = now - usage.get("ts", 0)
@@ -174,6 +176,27 @@ def decide(event, sid, now, cfg, st, usage, desktop, terminal=False):
             f"(מקצר את הבדיקה הבאה). אחרת: המשך בשקט, בלי להזכיר את הבדיקה למשתמש")
 
 
+def refresh_tee():
+    """A statusline bridge turned on by an older version keeps its own copy of the tee: bring it up to this
+    version (so `statusline_tee.py --off` and the Git Bash pass-through work after an update). Silent."""
+    tmp = None
+    try:
+        live, new = STATE / "statusline_tee.py", Path(__file__).resolve().parent / "statusline_tee.py"
+        if live.is_file() and new.is_file() and live.read_bytes() != new.read_bytes():
+            tmp = live.with_name(f"statusline_tee.{os.getpid()}.tmp")
+            tmp.write_bytes(new.read_bytes())
+            os.replace(tmp, live)
+            tmp = None
+    except Exception:
+        pass
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink()  # the tee was busy (Windows): try again on the next prompt, leave nothing behind
+            except OSError:
+                pass
+
+
 def main():
     try:
         raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
@@ -189,13 +212,15 @@ def main():
         return
     event = inp.get("hook_event_name") or "UserPromptSubmit"
     now = time.time()
-    cfg = settings(now)
+    cfg = settings(now, sid)
     sp = STATE / "state" / f"{sid}.json"
     st = load(sp, {}) or {}
     if inp.get("transcript_path"):
         st["transcript"] = inp["transcript_path"]
     if inp.get("cwd"):
         st["cwd"] = inp["cwd"]
+    if event == "UserPromptSubmit":
+        refresh_tee()
     entry = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
     desktop = entry == "claude-desktop" or os.environ.get("HANDOFF_FORCE_DESKTOP") == "1"
     terminal = entry == "cli"

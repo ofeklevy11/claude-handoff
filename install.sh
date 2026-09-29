@@ -1,6 +1,6 @@
 #!/bin/sh
 # claude-handoff one-line install (macOS / Linux / Git Bash):
-#   curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.4/install.sh | sh
 # Same as typing in Claude Code:  /plugin marketplace add ofeklevy11/claude-handoff
 #                                 /plugin install handoff@claude-handoff
 set -e
