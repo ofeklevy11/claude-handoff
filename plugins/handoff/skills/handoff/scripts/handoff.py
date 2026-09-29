@@ -217,8 +217,11 @@ def redact(text, count=True):
 def find_secrets(text):
     hits = []
     low = text.lower()
+    seen = {}
     for name, rx, grp in _SECRET_RULES:
-        if not any(x in low for x in _HINTS[name]):
+        if name not in seen:  # several rules share a name (and its hints): test the hints once
+            seen[name] = any(x in low for x in _HINTS[name])
+        if not seen[name]:
             continue
         spans = _b64_spans(text) if name in _IN_B64 else []
         for m in rx.finditer(text):
