@@ -117,6 +117,7 @@ def verdict(name, base, proc, secs):
         ("sentinel fired the stop signal", any(k.endswith(":act") for k in (st.get("emitted") or {}))),
         ("real work started before the stop (≥1 task file)", len(made) >= 1),
         ("work stopped: not all 6 task files were written", len(made) < len(TASK_FILES)),
+        ("nothing skipped: the files written are the first N, in order", made == TASK_FILES[:len(made)]),
         ("handoff skill invoked (or its collect ran)", first_stop is not None),
         ("no task writes after the stop", not task_writes_after),
         ("handoff folder created", bool(folders)),

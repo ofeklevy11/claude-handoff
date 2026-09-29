@@ -4,14 +4,18 @@
 
 Where the numbers come from, best first:
   1. usage.json written by statusline_tee.py (terminal, fresh <= 3 min)  -> decides alone.
-  2. usage.json written by `handoff.py note` (the model's own get_usage reading, fresh <= 5 min).
-  3. Desktop app with no fresh reading -> every N minutes asks the model for a silent get_usage probe.
-Never blocks, never fails loudly: any error -> exit 0 with no output.
+  2. usage.json from a get_usage call: the sentinel reads the tool's own result on PostToolUse (fresh <= 5 min),
+     or `handoff.py note`.
+  3. Desktop app -> every N minutes asks the model for a silent get_usage probe.
+A probe or a stop the model ignores is escalated: PreToolUse turns away the next work tool (Write, Edit, Bash...)
+with the reason, at most 3 times per item. Never fails loudly: any error -> exit 0 with no output.
 """
 import json
 import os
+import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 CLAUDE = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
@@ -32,6 +36,13 @@ DEFAULTS = {
     "fresh_note_s": 300,
 }
 LABEL = {"five_hour": "חלון 5 השעות", "seven_day": "המכסה השבועית", "context": "הקונטקסט של הסשן"}
+USAGE_TOOL = "mcp__ccd_session_mgmt__get_usage"
+WORK_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"}  # the only tools an escalation may turn away
+NEUTRAL = {"probe": {"ToolSearch"}, "act": {"ToolSearch", "Read", "Glob", "Grep", "TodoWrite"}}
+PATIENCE = {"probe": 2, "act": 1}  # ignored tool calls before the next work tool is turned away
+MAX_DENIALS = 3  # then the item is dropped: no dead end if get_usage is missing or the user wants to go on.
+# 3, not 2: in e2e Opus needed exactly 2 denials in every run and pushed a 3rd call through once when the cap was 2
+STARTED_GRACE = 30 * 60  # a handoff under way: a repeated stop is said, never enforced (HANDOFF.md is being filled)
 
 
 def load(p, default=None):
@@ -118,6 +129,8 @@ def decide(event, sid, now, cfg, st, usage, desktop, terminal=False):
                 last = emitted.get(f"{metric}:act", 0)
                 if now - last >= cfg["act_repeat_minutes"] * 60:
                     emitted[f"{metric}:act"] = now
+                    if now - st.get("handoff_started", 0) > STARTED_GRACE:
+                        st["pending"] = {"kind": "act", "since": now, "ignored": 0, "denied": 0}
                     return (f"⚠️ [handoff-sentinel] {label} ב-{value:.0f}%{reset}. עוצרים את העבודה עכשיו: "
                             f"סיים רק את הפעולה האטומית שבאמצע, אל תתחיל שום צעד חדש במשימה, והפעל מיד את "
                             f"הסקיל handoff. פקודת האיסוף, בדיוק כמו שהיא: "
@@ -131,11 +144,14 @@ def decide(event, sid, now, cfg, st, usage, desktop, terminal=False):
                 return (f"[handoff-sentinel] {label} ב-{value:.0f}%{reset}. עוד לא עוצרים, אבל לא פותחים "
                         f"עכשיו משימה ארוכה בלי נקודת שמירה.{tail} לא צריך להזכיר את זה למשתמש אלא אם זה "
                         f"משנה את התכנית.")
-        return None
+        if not desktop:
+            return None  # a fresh reading under the threshold: in the desktop app the probe schedule still runs
 
     # drill with no numbers at all (terminal without the bridge): stop anyway, that is the point of a drill
     if cfg.get("drill") and not desktop and not st.get("handoff_done") and not emitted.get("drill:act"):
         emitted["drill:act"] = now
+        if now - st.get("handoff_started", 0) > STARTED_GRACE:
+            st["pending"] = {"kind": "act", "since": now, "ignored": 0, "denied": 0}
         return (f"⚠️ [handoff-sentinel] חלון 5 השעות בסף. עוצרים את העבודה עכשיו: סיים רק את הפעולה "
                 f"האטומית שבאמצע, אל תתחיל שום צעד חדש במשימה, והפעל מיד את הסקיל handoff. פקודת האיסוף, "
                 f"בדיוק כמו שהיא: `sh \"{RUN}\" collect --reason \"תרגיל\"` ואחרי מילוי HANDOFF.md ו-finalize "
@@ -167,13 +183,111 @@ def decide(event, sid, now, cfg, st, usage, desktop, terminal=False):
     if now - st.get("last_probe", 0) < interval:
         return None
     st["last_probe"] = now
-    return (f"[handoff-sentinel] בדיקת מכסה שקטה: קרא את mcp__ccd_session_mgmt__get_usage (לא טעון? "
-            f"ToolSearch \"select:mcp__ccd_session_mgmt__get_usage\"). "
-            f"5 שעות ≥{cfg['five_hour']['act']}% או שבועי ≥{cfg['seven_day']['act']}% → עוצרים את העבודה: "
-            f"סיים רק את הפעולה שבאמצע והפעל את הסקיל handoff, ובאיסוף העבר את הקריאה: "
-            f"`sh \"{RUN}\" collect --reason \"...\" --five N --week N --resets HH:MM` ; "
-            f"5 שעות ≥{cfg['hot_from']}% → רשום את הקריאה: `sh \"{RUN}\" note --five N --week N --resets HH:MM` "
-            f"(מקצר את הבדיקה הבאה). אחרת: המשך בשקט, בלי להזכיר את הבדיקה למשתמש")
+    st["pending"] = {"kind": "probe", "since": now, "ignored": 0, "denied": 0}
+    return (f"[handoff-sentinel] בדיקת מכסה שקטה, חובה לפני הכלי הבא: קרא עכשיו ל-{USAGE_TOOL} (לא טעון? "
+            f"ToolSearch \"select:{USAGE_TOOL}\"). ה-sentinel קורא את התוצאה בעצמו ויגיד לך אם לעצור, אין צורך "
+            f"להריץ note. גיבוי: רואה 5 שעות ≥{cfg['five_hour']['act']}% או שבועי ≥{cfg['seven_day']['act']}% "
+            f"ולא קיבלת הודעת עצירה? עוצרים בכל זאת: סיים רק את הפעולה שבאמצע והפעל את הסקיל handoff "
+            f"(`sh \"{RUN}\" collect --reason \"...\" --five N --week N --resets HH:MM`). "
+            f"אחרת: המשך בשקט, בלי להזכיר את הבדיקה למשתמש")
+
+
+def _hhmm(iso):
+    try:
+        return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).astimezone().strftime("%H:%M")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def parse_usage(resp):
+    """get_usage's tool_response (a list of text blocks, a string or a dict) -> {five_hour, seven_day,
+    five_hour_resets}, or None when it holds no usable numbers (unavailable, not_applicable, anything else)."""
+    def texts(x, depth=0):
+        if depth > 4:
+            return
+        if isinstance(x, str):
+            yield x
+        elif isinstance(x, list):
+            for i in x[:20]:
+                yield from texts(i, depth + 1)
+        elif isinstance(x, dict):
+            if "plan" in x:
+                yield x
+            elif isinstance(x.get("text"), str):
+                yield x["text"]
+            elif "content" in x:
+                yield from texts(x["content"], depth + 1)
+
+    for t in texts(resp):
+        try:
+            j = t if isinstance(t, dict) else json.loads(t)
+        except ValueError:
+            continue
+        plan = j.get("plan") if isinstance(j, dict) else None
+        if not isinstance(plan, dict) or plan.get("status", "ok") != "ok":
+            continue
+        five = week = resets = None
+        other_weeks = []
+        for w in plan.get("windows") or []:
+            pct = w.get("percentUsed") if isinstance(w, dict) else None
+            if not isinstance(pct, (int, float)) or isinstance(pct, bool):
+                continue
+            label = str(w.get("label", "")).lower()
+            if "5-hour" in label or "5 hour" in label:
+                five, resets = float(pct), _hhmm(w.get("resetsAt"))
+            elif label.startswith("weekly"):
+                if "all models" in label:
+                    week = float(pct)
+                else:
+                    other_weeks.append(float(pct))
+        if week is None and other_weeks:
+            week = max(other_weeks)  # no all-models window: the fullest weekly limit is the one that stops work
+        if five is not None or week is not None:
+            return {"five_hour": five, "seven_day": week, "five_hour_resets": resets}
+    return None
+
+
+def satisfies(kind, tool, tin):
+    """The call that answers a pending item: get_usage for a probe; the handoff skill or its collect for a stop."""
+    if kind == "probe":
+        return tool == USAGE_TOOL
+    if tool == "Skill":
+        return "handoff" in str(tin.get("skill", ""))
+    return tool == "Bash" and bool(re.search(r"(run\.sh|handoff\.py)[\"']?\s+collect\b", str(tin.get("command", ""))))
+
+
+def track(st, tool, tin):
+    """PostToolUse of anything: answer the pending item, or count one more call that ignored it."""
+    p = st.get("pending")
+    if not isinstance(p, dict):
+        return
+    if satisfies(p.get("kind"), tool, tin) or st.get("handoff_done"):
+        st.pop("pending", None)
+    elif tool not in NEUTRAL.get(p.get("kind"), ()):
+        p["ignored"] = p.get("ignored", 0) + 1
+
+
+def gate(st, tool, tin):
+    """PreToolUse: the reason to turn this work tool away, or None to let it run."""
+    p = st.get("pending")
+    if not isinstance(p, dict) or tool not in WORK_TOOLS or st.get("handoff_done"):
+        return None
+    kind = p.get("kind")
+    if kind not in PATIENCE or satisfies(kind, tool, tin) or p.get("ignored", 0) < PATIENCE[kind]:
+        return None
+    if p.get("denied", 0) >= MAX_DENIALS:
+        st.pop("pending", None)
+        return None
+    p["denied"] = p.get("denied", 0) + 1
+    # measured (e2e, Opus): a bare "denied" reads as a problem with this file, and the model skips to the next one
+    if kind == "probe":
+        return (f"[handoff-sentinel] נחסם זמנית עד בדיקת המכסה. זו לא שגיאה בפעולה הזו, והיא לא בוטלה: כל כלי "
+                f"עבודה נחסם עד שתקרא ל-{USAGE_TOOL}. הקריאה הבאה שלך חייבת להיות {USAGE_TOOL} (לא טעון? "
+                f"ToolSearch \"select:{USAGE_TOOL}\"). אל תדלג על הפעולה הזו ואל תעבור לפעולה אחרת: אחרי הבדיקה "
+                f"חזור בדיוק אליה. ה-sentinel קורא את התוצאה בעצמו, ואין צורך להזכיר את זה למשתמש.")
+    return (f"[handoff-sentinel] נחסם: המכסה בסף ויש הוראת עצירה שלא בוצעה. זו לא שגיאה בפעולה הזו. לא ממשיכים "
+            f"במשימה ולא עוברים לפעולה אחרת: הקריאה הבאה שלך היא הסקיל handoff, או פקודת האיסוף "
+            f"`sh \"{RUN}\" collect --reason \"מכסה בסף\"`")
 
 
 def refresh_tee():
@@ -214,6 +328,23 @@ def main():
     now = time.time()
     cfg = settings(now, sid)
     sp = STATE / "state" / f"{sid}.json"
+    tool = inp.get("tool_name") or ""
+    tin = inp.get("tool_input") if isinstance(inp.get("tool_input"), dict) else {}
+    if event == "PreToolUse":
+        if not sp.is_file():
+            return
+        st = load(sp, {}) or {}
+        had = json.dumps(st.get("pending"))
+        reason = gate(st, tool, tin)
+        if json.dumps(st.get("pending")) != had:
+            save(sp, st)
+        if reason:
+            if cfg.get("drill"):
+                reason = "[תרגיל handoff] " + reason
+            out = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                          "permissionDecisionReason": reason}}
+            sys.stdout.write(json.dumps(out, ensure_ascii=True))
+        return
     st = load(sp, {}) or {}
     if inp.get("transcript_path"):
         st["transcript"] = inp["transcript_path"]
@@ -221,6 +352,14 @@ def main():
         st["cwd"] = inp["cwd"]
     if event == "UserPromptSubmit":
         refresh_tee()
+    if event == "PostToolUse":
+        if tool == USAGE_TOOL:
+            reading = parse_usage(inp.get("tool_response"))
+            if reading:  # the model's own get_usage call: the sentinel reads it, no `note` needed
+                save(USAGE_FILE, {"ts": now, "source": "get_usage", "session_id": sid, "context": None, **reading})
+        if satisfies("act", tool, tin):
+            st["handoff_started"] = now
+        track(st, tool, tin)
     entry = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
     desktop = entry == "claude-desktop" or os.environ.get("HANDOFF_FORCE_DESKTOP") == "1"
     terminal = entry == "cli"
