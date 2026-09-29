@@ -70,17 +70,18 @@ _END = r"(?=[\s\"'`,;<>{})\]]|$)"  # an unquoted value ends here; `hash(x)` and 
 # Everything else with a letter and a digit is a secret, however it looks (hunter22, my_jwt_secret_key_12345,
 # Summer.Vacation2024, a Discord token). Security release: when in doubt, it is a secret.
 _LOOKUP = r"(?!process\.env|os\.environ|os\.getenv|import\.meta|https?://|\$\{|\$[A-Z_][A-Z0-9_]{0,63}(?![A-Za-z0-9]))"
-_DOTTED = r"(?!(?<![\"'])(?-i:[a-z_$][a-z0-9_$]{0,11})(?:\.[A-Za-z_$][\w$]{0,63}){1,8}(?![\w$.\-/+=@!#%:]))"
+_DOTTED = r"(?!(?<![\"'])(?-i:[a-z_$][a-z0-9_$]{0,63})(?:\.[A-Za-z_$][\w$]{0,63}){1,8}(?![\w$.\-/+=@!#%:]))"
 _REF = _LOOKUP + _DOTTED
 _LD = r"(?=%s{0,512}?\d)(?=%s{0,512}?[A-Za-z])" % (_V, _V)
 # names that hold a secret; `pass` only as a whole word (DB_PASS, pass:), never inside bypass/compass
-_KW = r"(?:secret[_-]?key(?:[_-]?base)?|api[_-]?key|access[_-]?key|app[_-]?key|token|secret|passw(?:or)?d|(?<![A-Za-z])pass(?![A-Za-z]))"
+_KW = (r"(?:secret[_-]?key(?:[_-]?base)?|api[_ -]?key|access[_ -]?key|app[_-]?key|token|secret|passw(?:or)?d|"
+       r"(?<![A-Za-z])pass(?![A-Za-z])|(?<![A-Za-z])pwd(?![A-Za-z]))")
 # ALL_CAPS names that NAME something rather than hold a secret: a key-name word after the secret word
 # (API_KEY_HEADER, SESSION_TOKEN_TTL_MS, PASSWORD_FILE) or a public/fingerprint key (NEXT_PUBLIC_*, GPG_KEY)
 _KEYNAME = (r"(?![A-Z0-9_]{0,64}(?:TOKEN|SECRET|PASSWORD|PASSWD|PASS|KEY)_(?:[A-Z0-9]{1,32}_){0,4}(?:HEADER|PREFIX|"
             r"SUFFIX|NAME|FIELD|PARAM|TTL|EXPIRY|EXPIRES|EXPIRATION|LENGTH|TYPE|URL|URI|PATH|FILE|DIR|COUNT|LIMIT|SIZE|"
             r"ID|MS|SECONDS|TIMEOUT|ENABLED|REQUIRED)(?:_[A-Z0-9]{1,32}){0,4}\s*[=:])"
-            r"(?!(?:[A-Z0-9]{1,32}_){0,6}(?:GPG|FINGERPRINT|PUBLIC|PUBLISHABLE|PUB)_)")
+            r"(?:(?=[A-Z0-9_]{0,96}(?:PRIVATE|SECRET))|(?!(?:[A-Z0-9]{1,32}_){0,6}(?:GPG|FINGERPRINT|PUBLIC|PUBLISHABLE|PUB)_))")
 _PUB = r"(?<!public_)(?<!publishable_)(?<!pub_)"  # NEXT_PUBLIC_API_KEY, STRIPE_PUBLISHABLE_KEY: public by design
 # STORAGE_KEY / TOKEN_KEY / CACHE_KEY usually name a localStorage key ('todos-vuejs-2.0'); a real one is long
 _AMBIG = r"(?:STORAGE|CACHE|COOKIE|TOKEN|SESSION)_KEY"
@@ -90,7 +91,7 @@ _QVAL = (r"(?!\$\{|\{\{|%\(|process\.env)(?!(?:(?!\3)\S){0,300}?(?:your|xxx|exam
          r"(?:(?!\3)[^\s.]){16,300}\3)")
 _SECRET_RULES = [
     # a key cut before its END line (clipped, truncated tool output) is still a key: base64 run after the header
-    ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[\s\S]+?-----END [A-Z ]*PRIVATE KEY-----"
+    ("private-key", re.compile(r"-----BEGIN [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----(?:(?:(?!-----BEGIN)[\s\S]){1,20000}?-----END [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----"
                                r"|\s*[A-Za-z0-9+/=]{40,}[A-Za-z0-9+/=\s]*)"), None),
     ("anthropic-key", re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"), None),
     ("openrouter-key", re.compile(r"sk-or-v1-[A-Za-z0-9]{20,}"), None),
@@ -112,28 +113,50 @@ _SECRET_RULES = [
     ("azure-key", re.compile(r"(?i)(\b(?:AccountKey|SharedAccessKey)=)([A-Za-z0-9+/=]{20,})"), 2),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"), None),
     ("bearer", re.compile(r"(?i)(\b(?:bearer|basic)\s+)([A-Za-z0-9._\-+/=]{16,})"), 2),
+    ("bearer", re.compile(r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?\s*(?:token|api-?key)\s+)([A-Za-z0-9._\-+/=]{20,})"), 2),
     ("url-secret", re.compile(r"(?i)([?&](?:access_token|token|key|api_key|apikey|secret|password|pwd)=)(?![$({])([^&\s\"'<>]{8,})"), 2),
     # any scheme with user:password@ ; '/' is not a password character here, so host:port/@scope is left alone,
     # and ${POSTGRES_PASSWORD} is a variable, not a password
     ("conn-string", re.compile(r"(?i)(?<![A-Za-z0-9+.\-])([a-z][a-z0-9+.\-]{0,20}://[^:\s/@]{0,128}:)"
                                r"(?!\$\{|(?-i:\$[A-Z_][A-Z0-9_]{0,63})@)([^@\s/]{1,256})(@)"), 2),
     ("env-secret", re.compile(r"\b" + _KEYNAME + r"(?!" + r"[A-Z0-9_]{0,64}" + _AMBIG + r"\s*[=:])"
-                              r"([A-Z][A-Z0-9_]{0,64}(?:TOKEN|SECRET|PASSWORD|PASSWD|_PASS|_KEY)[A-Z0-9_]{0,32})"
+                              r"([A-Z][A-Z0-9_]{0,64}(?:TOKEN|SECRET|PASSWORD|PASSWD|_PASS|_PWD|_KEY)[A-Z0-9_]{0,32})"
                               r"(\s*[=:]\s*[\"']?)" + _REF + r"(?=[\w\-./+=!@#$%^&*~]{0,512}?\d)(?=[\w\-./+=!@#$%^&*~]{0,512}?[A-Za-z])"
                               r"([\w\-./+=!@#$%^&*~]{12,512})" + _END), 3),
     ("env-secret", re.compile(r"\b([A-Z0-9_]{0,64}" + _AMBIG + r")(\s*[=:]\s*[\"']?)" + _REF
                               + r"([\w\-./+=!@#$%^&*~]{24,512})" + _END), 3),
     ("quoted-secret", re.compile(r"(?i)([\"'](?:api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|client[_-]?secret|secret[_-]?key|password)[\"']\s*[:=]\s*[\"'])([^\"'\s]{12,512})([\"'])"), 2),
     # name = "quoted value": anything up to the closing quote (a Django SECRET_KEY has #$!&^*)
-    ("named-secret", re.compile(r"(?i)" + _PUB + r"(" + _KW + r")([\"']?\]?\s*[=:]\s*)([\"'])" + _QVAL + r"((?:(?!\3)\S){8,300})(\3)"), 4),
+    ("named-secret", re.compile(r"(?i)" + _PUB + r"(" + _KW + r")([\"'`]?\]?\s*(?:=>|[=:])\s*)([\"'`])" + _QVAL + r"((?:(?!\3)\S){8,300})(\3)"), 4),
     # name = unquoted value: a letter and a digit, not a reference, and not a variable that names the same thing
     # (password=password1, hashed_password_2, new_password: Django / JS code, never a real password)
-    ("named-secret", re.compile(r"(?i)" + _PUB + r"(" + _KW + r")([\"']?\s*[=:]\s*)(?![\"'])" + _REF
-                                + r"(?!(?:[a-z][a-z0-9]{0,30}_){0,3}\1(?:_[a-z0-9]{1,30}){0,3}\d?(?![\w.\-/+=@!#%:$]))"
+    ("named-secret", re.compile(r"(?i)" + _PUB + r"(" + _KW + r")([\"'`]?\s*(?:=>|[=:])\s*)(?![\"'`])" + _REF
+                                + r"(?!(?=(?-i:[a-z_]))(?:[a-z][a-z0-9]{0,30}_){0,3}\1(?:_[a-z0-9]{1,30}){0,3}\d?(?![\w.\-/+=@!#%:$]))"
                                 + _LD + r"(" + _V + r"{8,512})" + _END), 3),
     ("telegram-token", re.compile(r"\b\d{8,10}:AA[A-Za-z0-9_\-]{30,40}\b"), None),
     ("discord-token", re.compile(r"\b[MNO][A-Za-z0-9_\-]{23,27}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27,40}\b"), None),
     ("laravel-key", re.compile(r"(?i)(\b[A-Z_]{0,32}KEY\s*=\s*[\"']?)(base64:[A-Za-z0-9+/]{30,120}={0,2})"), 2),
+    # a password in an ALL_CAPS *PASSWORD / *_PASS / *_PWD name: letters only counts too (supersecretpassword)
+    ("env-password", re.compile(r"\b([A-Z][A-Z0-9_]{0,64}(?:PASSWORD|PASSWD|_PASS|_PWD))(\s*[=:]\s*[\"']?)" + _REF
+                                + r"(?!changeme|password\b|example)([\w\-./+=!@#$%^&*~]{8,512})" + _END), 3),
+    # the literal default of an env lookup: os.environ.get("SECRET_KEY", "..."), config('X', default='...')
+    ("env-default", re.compile(r"(?i)((?:environ\.get|getenv|config|env(?:\.str)?)\(\s*[\"'][^\"'\n]{0,64}"
+                               r"(?:KEY|SECRET|TOKEN|PASS|PWD)[^\"'\n]{0,64}[\"']\s*,\s*(?:default\s*=\s*)?)"
+                               r"([\"'])((?:(?!\2)\S){8,300})(\2)"), 3),
+    ("env-default", re.compile(r"(?i)(process\.env\.\w{0,64}(?:KEY|SECRET|TOKEN|PASS|PWD)\w{0,32}\s*(?:\|\||\?\?)\s*)"
+                               r"([\"'`])((?:(?!\2)\S){8,300})(\2)"), 3),
+    ("django-key", re.compile(r"django-insecure-[^\s'\"]{20,}"), None),
+    # PHP: define('DB_PASSWORD', '...') and WordPress salts (not the sample's placeholder)
+    ("php-define", re.compile(r"(?i)(\bdefine\s*\(\s*[\"'][A-Z0-9_]{0,64}(?:PASSWORD|KEY|SALT|SECRET|TOKEN)[\"']\s*,\s*)"
+                              r"([\"'])(?!put your unique phrase)((?:(?!\2)[^\r\n]){8,300})(\2)"), 3),
+    # XML: <password>...</password>, <add key="...Password..." value="...">
+    ("xml-secret", re.compile(r"(?i)(<(?:password|passwd|pwd|secret|token|api[_-]?key)>)([^<\s]{8,300})(</)"), 2),
+    ("xml-secret", re.compile(r"(?i)(key=[\"'][^\"'\n]{0,64}(?:password|secret|token|apikey|api_key)[^\"'\n]{0,64}[\"']\s+value=)"
+                              r"([\"'])((?:(?!\2)[^\r\n]){8,300})(\2)"), 3),
+    # a password typed as a sentence in chat: "the password is Hunter2024!", "הסיסמה היא Kp4Lm7Nq2!"
+    ("prose-secret", re.compile(r"(?i)((?:\b(?:password|passcode|api key|access key|secret key|token)\s+(?:is|was)\s+"
+                                r"|(?:ה?סיסמ[הא]|סיסמת|טוקן|מפתח)[^\n:]{0,20}?(?:היא|הוא|:)\s*))"
+                                r"(?=\S{0,200}?[0-9!@#$%^&*])(?=\S{0,200}?[A-Za-z])(\S{8,200})"), 2),
 ]
 # base64 payloads (data: URIs, 76-column blocks): an `EAA...` run inside them is image data, not a Meta token
 _B64 = re.compile(r"data:[\w/+.\-]+;base64,[A-Za-z0-9+/=\s]+|(?:^[A-Za-z0-9+/]{56,80}={0,2}\r?\n){2,}[A-Za-z0-9+/=]*",
@@ -158,10 +181,13 @@ _HINTS = {
                    "shpss_", "shpca_", "shppa_", "xai-", "pplx-", "r8_", "dckr_pat_", "dop_v1_", "lin_api_", "sbp_",
                    "hvs.", "glsa_"),
     "webhook-url": ("hooks.slack.com", "/api/webhooks"), "azure-key": ("accountkey=", "sharedaccesskey="),
-    "jwt": ("eyj",), "bearer": ("bearer", "basic"), "url-secret": ("token=", "key=", "secret=", "password=", "pwd="),
-    "conn-string": ("://",), "env-secret": ("token", "secret", "passw", "_pass", "_key"),
+    "jwt": ("eyj",), "bearer": ("bearer", "basic", "authorization"), "url-secret": ("token=", "key=", "secret=", "password=", "pwd="),
+    "conn-string": ("://",), "env-secret": ("token", "secret", "passw", "_pass", "_pwd", "_key"),
     "quoted-secret": ("key", "token", "secret", "passw"),
-    "named-secret": ("token", "secret", "pass", "key"),
+    "named-secret": ("token", "secret", "pass", "key", "pwd"),
+    "env-password": ("passw", "_pass", "_pwd"), "env-default": ("environ", "getenv", "config(", "env.", "env("),
+    "django-key": ("django-insecure-",), "php-define": ("define",), "xml-secret": ("</", "value="),
+    "prose-secret": (" is ", " was ", "סיסמ", "טוקן", "מפתח"),
     "telegram-token": (":aa",), "discord-token": ("",), "laravel-key": ("base64:",),
 }
 REDACTIONS = Counter()
@@ -666,12 +692,13 @@ _BOMS = ((b"\xff\xfe\x00\x00", "utf-32-le"), (b"\x00\x00\xfe\xff", "utf-32-be"),
          (b"\xfe\xff", "utf-16-be"), (b"\xef\xbb\xbf", "utf-8"))
 
 
-def _texty(s):
+def _texty(s, cjk=False):
     """Reads as text: at least 85% of the characters are ordinary (ASCII, Latin, Greek, Cyrillic, Hebrew, Arabic,
     punctuation, whitespace). Random binary decoded as UTF-16/32 lands mostly on CJK, surrogates and controls."""
     if not s:
         return False
-    ok = sum(1 for c in s if c in "\t\n\r" or " " <= c <= "~" or " " <= c <= "ۿ" or " " <= c <= "⁯")
+    ok = sum(1 for c in s if c in "\t\n\r" or " " <= c <= "~" or " " <= c <= "ۿ" or " " <= c <= "⁯"
+             or (cjk and ("　" <= c <= "鿿" or "가" <= c <= "힯")))
     return ok >= 0.85 * len(s)
 
 
@@ -692,7 +719,10 @@ def text_of(p):
         for enc in cands:
             sample = head.replace(b"\0", b"").decode("utf-8", "replace") if enc == "utf-8-nul" else \
                 head[:len(head) - len(head) % 4].decode(enc, "replace")
-            if _texty(sample):
+            if not head.strip(b"\0") and enc == "utf-8-nul":  # all NULs so far: decide on the whole file
+                rest = (head + fh.read()).replace(b"\0", b"")
+                return rest.decode("utf-8", "ignore") if _texty(rest[:8192].decode("utf-8", "replace"), True) else None
+            if _texty(sample, cjk=(enc == "utf-8-nul")):
                 rest = head + fh.read()
                 return rest.replace(b"\0", b"").decode("utf-8", "ignore") if enc == "utf-8-nul" else rest.decode(enc, "ignore")
         return None
@@ -1334,8 +1364,13 @@ def restore_statusline(s, cfg):
         orig = cfg["statusline_original"]
     elif cfg.get("statusline_passthrough"):
         orig = {**(s.get("statusLine") or {}), "type": "command", "command": cfg["statusline_passthrough"]}
-    else:
+    else:  # the saved original is gone (config.json rewritten): take it from the newest backup made before `on`
         orig = None
+        for b in sorted((CLAUDE / "backups").glob("settings.before-handoff-statusline.*.json"), reverse=True):
+            sl = (load_json(b, {}) or {}).get("statusLine")
+            if isinstance(sl, dict) and "statusline_tee.py" not in (sl.get("command") or ""):
+                orig = sl
+                break
     if orig:
         s["statusLine"] = orig
     else:

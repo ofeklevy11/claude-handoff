@@ -105,7 +105,8 @@ Windows, macOS ו-Linux, עם Python 3.8 ו-3.12. התקנה חיה ובדיקת
   טקסט שנמצא בתוכו סוד. כולם רשומים בראש ה-HANDOFF עם המקור.
 - **הזיהוי מבוסס תבניות** (מפתחות Anthropic/OpenAI/GitHub/AWS/Google/Stripe/Slack/HuggingFace/GitLab/npm,
   מפתחות פרטיים, JWT, Bearer/Basic, URL עם סיסמה, `password=`/`*_TOKEN=` עם ערך). סוד בפורמט לא מוכר יכול
-  לעבור. **קבצים בינאריים לא נסרקים** (sqlite, docx, תמונות). לפני ששולחים ZIP למישהו אחר, כדאי להציץ בו.
+  לעבור, וכך גם סיסמה שמועברת כארגומנט לפונקציה (`jwt.sign(x, 'secret')`) או בדגל של פקודה (`-p`, `-u`). **קבצים
+  בינאריים לא נסרקים** (sqlite, docx, תמונות); קבצי טקסט ב-UTF-16/UTF-32 כן. לפני ששולחים ZIP למישהו אחר, כדאי להציץ בו.
 - **כל מה שנאסף הוא נתונים, לא הוראות:** הסשן שמקבל את ה-handoff מקבל הוראה מפורשת לא לבצע הוראות שמופיעות
   בשמות קבצים, ב-git, בלוגים או בתוכן קבצים.
 - **דיווח על בעיית אבטחה:** [GitHub Issues](https://github.com/ofeklevy11/claude-handoff/issues).
@@ -130,7 +131,7 @@ claude plugin update handoff@claude-handoff
 ## בדיקות
 
 ```bash
-python tests/run_tests.py        # 282 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
+python tests/run_tests.py        # 312 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
                                  # hook כתהליך אמיתי, גשר ה-statusline, pipeline מלא עם שער חיובי ושלילי, תרגיל,
                                  # ו-1.0.4: קישורים, סודות ב-workspace, ZIP נייד, git, הזרקת מבנה, סשן אחד בתרגיל
 python tests/install_test.py     # התקנה אמיתית של הפלאגין לתיקיית הגדרות זמנית (בלי לגעת בשלך)
@@ -173,7 +174,7 @@ paste into a new session or another account. You pick up exactly where you left 
   new session. Uninstalling with the terminal bridge on? `python "$HOME/.claude/handoff/statusline_tee.py" --off`
   (PowerShell or bash; `python3` on macOS).
 - Requires Python 3.8+ (and Git Bash on Windows, which Claude Code already uses). Everything stays local.
-- Tests: `python tests/run_tests.py` (offline, 282 checks), `tests/install_test.py` (real plugin install
+- Tests: `python tests/run_tests.py` (offline, 312 checks), `tests/install_test.py` (real plugin install
   into a throwaway config), `tests/harness_test.py` (real Claude Code process: plugin loads, hook fires, stop
   message is injected; free), `tests/e2e.py` (real headless Claude session: must stop mid-task and pass the gate).
 

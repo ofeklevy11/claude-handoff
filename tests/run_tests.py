@@ -129,6 +129,26 @@ SECRETS = [
     "AZURE_STORAGE_KEY=" + "Ab3/" * 22,
     "AWS_SECURITY_TOKEN=" + "IQoJb3JpZ2luX2VjEFsaCXVzLWVhc3QtMSJHMEUCIQ",
     "AZURE_ACCOUNT_KEY=" + "a1B2c3D4e5" + "F6g7H8i9J0",
+    # 1.0.4 audit round 4 (final): env defaults, letters-only passwords, chat sentences, Hebrew, PHP, XML, pwd, PGP
+    'SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "' + "dj-7x#k2@m9!q$w4e&r8t" + '^y1u*i5o0p3")',
+    "SECRET_KEY = config('SECRET_KEY', default='" + "k2m9q4w8e1r5t7" + "y3u6i0o2p')",
+    "const JWT_SECRET = process.env.JWT_SECRET || '" + "jwt-fallback-secret" + "-123';",
+    "EMAIL_HOST_PASSWORD=" + "qwertyuiop" + "asdfgh",
+    "      POSTGRES_PASSWORD: " + "supersecret" + "password",
+    "סיסמה לשרת: " + "Zq9Wx8" + "Vy7",
+    "הסיסמה היא " + "Kp4Lm7" + "Nq2!",
+    "the password is " + "Hunter" + "2024!",
+    "api key: " + "a1b2c3d4e5f6" + "a7b8c9d0e1f2",
+    'curl -H "Authorization: Token ' + "7744b09199c62bcf" + '9418ad846dd0e4bbdfc6ee4b" https://x',
+    "define('DB_PASSWORD', '" + "wpS3cret" + "Pass!');",
+    "$db = ['password' => '" + "Arr4yPass" + "2024'];",
+    "Server=x;Database=y;Uid=sa;Pwd=" + "Sql5erver" + "Pass!;",
+    "MYSQL_PWD=" + "Mysq1Pass" + "2024",
+    "<password>" + "MavenPass" + "2024</password>",
+    '<add key="DbPassword" value="' + "WebC0nfig" + 'Pass!" />',
+    "password=" + "Password" + "1",
+    "GPG_PRIVATE_KEY=" + "a1B2c3D4" * 5,
+    "password: `" + "Tick3tPass" + "2024`",
 ]
 CODE = [
     "const tokens = JSON.parse(fs.readFileSync(path.join(dir, 'tokens.json'), 'utf8'))",
@@ -178,7 +198,18 @@ CODE = [
     'API_KEY="your-api-key-here"',
     "SECRET_KEY=<your-secret-key>",
     "token = request.headers.get('Authorization')",
+    # 1.0.4 audit round 4: references and prose that must stay
+    "  password = random_password.postgres16.result",
+    "  password = aws_secretsmanager_secret_version.db_v2.secret_string",
+    "define('AUTH_KEY', 'put your unique phrase here');",
+    "PWD=$(pwd)",
+    "the password is required",
+    "הסיסמה היא חזקה מאוד",
+    "This is a basic introduction to APIs",
+    "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}",
 ]
+PGP = "-----BEGIN PGP PRIVATE KEY BLOCK-----" + chr(10) + chr(10) + "lQOYBGX" + "a1B2" * 20
+check("A16 a PGP private key block is caught", bool(h.find_secrets(PGP)) and "a1B2a1B2" not in h.redact(PGP, count=False))
 for t in SECRETS:
     r = h.redact(t, count=False)
     check(f"redacts  {t[:46]}", bool(h.find_secrets(t)) and not h.find_secrets(r) and "REDACTED" in r)
@@ -958,9 +989,13 @@ check("A12 a non-ASCII home folder (Hebrew user name) is ~ in the ZIP's manifest
 lw2 = tree(SHORT / "nullog", {"crash.log": b"\x00" * 400 + f"export GH=ghp_{'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'}\n".encode() * 3})
 nrep, ndest = copyws(lw2, "nullogd")
 check("A13 a crash-truncated log (a block of NULs, then text) is still scanned", not (ndest / "crash.log").exists())
+lw3 = tree(SHORT / "nullog8k", {"crash.log": b"\x00" * 12288 + f"export GH=ghp_{'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'}\n".encode()})
+n3rep, n3dest = copyws(lw3, "nullog8kd")
+check("A13 ... even when the NULs fill the first 8KB and more", not (n3dest / "crash.log").exists())
 slow = []
 for evil in ("a" * 100000, "x://" * 30000, "token=" + "a1" * 50000, "PASSWORD" * 20000 + "=", "A_" * 30000 + "KEY=x",
-             "password: " + "'" * 50000, "https://" + "a:" * 40000):
+             "password: " + "'" * 50000, "https://" + "a:" * 40000, "-----BEGIN RSA PRIVATE KEY-----" + chr(10) * 1 * 3000,
+             ("-----BEGIN RSA PRIVATE KEY-----" + chr(10)) * 3000, "define('" * 20000, "password is " * 10000):
     t0 = time.time()
     h.find_secrets(evil)
     h.redact(evil, count=False)
@@ -1018,6 +1053,13 @@ r_tee = subprocess.run([sys.executable, str(state / "statusline_tee.py"), "--off
 check("A15 a hand-broken config.json: off and the tee's --off refuse and touch nothing",
       r_off.returncode != 0 and (r_tee is None or r_tee.returncode != 0) and sp_.read_bytes() == before_
       and (state / "config.json").read_text(encoding="utf-8") == "{ not json")
+fresh_bridge()
+sp_.write_text(json.dumps(ORIG_SETTINGS, indent=2), encoding="utf-8")
+cli("statusline", "on")
+(state / "config.json").write_text(json.dumps({"five_hour": {"act": 80}}), encoding="utf-8")  # the user rewrote it
+cli("statusline", "off")
+check("A17 config.json rewritten while the bridge was on: off restores the statusline from the backup",
+      json.loads(sp_.read_text(encoding="utf-8")).get("statusLine") == ORIG_SETTINGS["statusLine"])
 fresh_bridge()
 sp_.write_text(json.dumps(ORIG_SETTINGS, indent=2), encoding="utf-8")
 cli("statusline", "on")
