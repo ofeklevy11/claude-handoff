@@ -73,10 +73,16 @@ def off():
     if not isinstance(s, dict):
         print(f"settings.json is not a JSON object ({sp}): not touching it.")
         return 1
-    try:
-        cfg = json.loads((STATE / "config.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        cfg = {}
+    cfg = {}
+    if (STATE / "config.json").is_file():  # it holds the original statusLine: unreadable = refuse, never guess
+        try:
+            cfg = json.loads((STATE / "config.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cfg = None
+        if not isinstance(cfg, dict):
+            print(f"handoff config.json is not valid JSON ({STATE / 'config.json'}): not touching anything. Your "
+                  f"original statusline is in {CLAUDE / 'backups'} (settings.before-handoff-statusline.*.json).")
+            return 1
     if "statusline_tee.py" in ((s.get("statusLine") or {}).get("command") or ""):
         if "statusline_original" in cfg:
             orig = cfg["statusline_original"]

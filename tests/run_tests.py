@@ -107,6 +107,28 @@ SECRETS = [
     "postgres://u:" + "$ecretPass9x" + "@db/x",
     "https://hooks.slack.com/services/" + "T000/B000/" + "X" * 24,
     "AccountName=x;AccountKey=" + "a1B2c3d4" * 6 + "==;",
+    # 1.0.4 audit round 3: spaced assignments, dotted tokens, Django/Flask/Terraform/Rails keys, *_PASS, and more
+    "DB_PASSWORD = " + "prod_db_pass_" + "2024",
+    "password = " + "hunter" + "22",
+    "api_key = " + "live_key_" + "7f3a9c2e",
+    "spring.datasource.password = " + "S3cretPass" + "99",
+    "DB_PASSWORD=" + "Summer.Vacation" + "2024",
+    "DISCORD_TOKEN=" + "MTEyMzQ1Njc4OTAxMjM0NTY3OA" + ".GhIjKl." + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6",
+    "SECRET_KEY = 'django-insecure-" + "q9#x2@k!z8$w3m&v7^b1n*c5j0h6g4r8t2y'",
+    "app.secret_key = '" + "9f8e7d6c5b4a" + "39281706'",
+    "app.config['SECRET_KEY'] = '" + "a8f9b2c4d6e1" + "f3a5b7c9'",
+    '  secret_key = "' + "q8Zr3Kp9Lm2Qx7Vb4Nw1" + 'Hs6Tj0Rf5Yc8Ud3Ge9A"',
+    "secret_key_base: " + "9a8b7c6d5e4f" + "3a2b1c0d",
+    "REDIS_URL=redis://:" + "p4ssw0rdR3dis" + "@redis:6379/0",
+    "DB_PASS=" + "Pr0dPassw0rd" + "!",
+    "SMTP_PASS=" + "abcdefgh" + "12345678",
+    "EMAIL_HOST_PASSWORD = '" + "qwertyuiop" + "asdfgh'",
+    'JWT_SECRET: "' + "supersecret" + 'jwtkey"',
+    "APP_KEY=base64:" + "Xh3kL9mP2qR7tV5wY8zA1bC4dE6fG0hJ2kL4mN6pQ8s=",
+    "123456789:" + "AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw",
+    "AZURE_STORAGE_KEY=" + "Ab3/" * 22,
+    "AWS_SECURITY_TOKEN=" + "IQoJb3JpZ2luX2VjEFsaCXVzLWVhc3QtMSJHMEUCIQ",
+    "AZURE_ACCOUNT_KEY=" + "a1B2c3D4e5" + "F6g7H8i9J0",
 ]
 CODE = [
     "const tokens = JSON.parse(fs.readFileSync(path.join(dir, 'tokens.json'), 'utf8'))",
@@ -143,6 +165,19 @@ CODE = [
     "password=os.environ['DB_PASS']",
     "API_KEY=${API_KEY}",
     "token: ${{ secrets.GH_TOKEN }}",
+    # 1.0.4 audit round 3: ordinary framework code and text
+    "user = authenticate(request, username=username, password=password1)",
+    "const { email, password: password2 } = req.body",
+    "await createUser({ email: email2, password: password2 })",
+    "password=hashed_password_2,",
+    'password: "Enter your password"',
+    'password: "auth.password.label"',
+    "ENV GPG_KEY=A035C8C19219BA821ECEA86B64E628F8D684696D",
+    "NEXT_PUBLIC_API_KEY=pk_abc123def456ghi789",
+    "STRIPE_PUBLISHABLE_KEY=pk_live_abc123def456",
+    'API_KEY="your-api-key-here"',
+    "SECRET_KEY=<your-secret-key>",
+    "token = request.headers.get('Authorization')",
 ]
 for t in SECRETS:
     r = h.redact(t, count=False)
@@ -912,6 +947,26 @@ finally:
     h.HOME = _home
 check("A6 the home folder becomes ~ even at the end of a sentence or in bold (but not inside a longer name)",
       pt == f"see ~. and **~** and {hs}X-other")
+_home = h.HOME
+h.HOME = Path("C:/Users/אופק") if os.name == "nt" else Path("/home/אופק")
+try:
+    js = json.dumps({"cwd": str(h.HOME / "proj")}, ensure_ascii=False)
+    pj = h.portable(js) if hasattr(h, "portable") else js
+finally:
+    h.HOME = _home
+check("A12 a non-ASCII home folder (Hebrew user name) is ~ in the ZIP's manifest.json too", "אופק" not in pj and "~" in pj)
+lw2 = tree(SHORT / "nullog", {"crash.log": b"\x00" * 400 + f"export GH=ghp_{'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'}\n".encode() * 3})
+nrep, ndest = copyws(lw2, "nullogd")
+check("A13 a crash-truncated log (a block of NULs, then text) is still scanned", not (ndest / "crash.log").exists())
+slow = []
+for evil in ("a" * 100000, "x://" * 30000, "token=" + "a1" * 50000, "PASSWORD" * 20000 + "=", "A_" * 30000 + "KEY=x",
+             "password: " + "'" * 50000, "https://" + "a:" * 40000):
+    t0 = time.time()
+    h.find_secrets(evil)
+    h.redact(evil, count=False)
+    if time.time() - t0 > 2:
+        slow.append(evil[:12])
+check(f"A14 no crafted 100KB input makes the scanner slow (ReDoS){' ' + str(slow) if slow else ''}", not slow)
 if os.name != "nt":
     xw = tree(SHORT / "xw", {"run.sh": "#!/bin/sh\necho hi\n"})
     os.chmod(xw / "run.sh", 0o755)
@@ -952,6 +1007,21 @@ check("#20 bridge on keeps padding and every other statusLine key",
 cli("statusline", "off")
 check("#20 bridge off restores settings.json exactly (whole dict)", json.loads(sp_.read_text(encoding="utf-8")) == ORIG_SETTINGS)
 check("#20 no temp files left beside settings.json", not list(cfgdir.glob("*.tmp")))
+fresh_bridge()
+sp_.write_text(json.dumps(ORIG_SETTINGS, indent=2), encoding="utf-8")
+cli("statusline", "on")
+(state / "config.json").write_text("{ not json", encoding="utf-8")
+before_ = sp_.read_bytes()
+r_off = cli("statusline", "off")
+r_tee = subprocess.run([sys.executable, str(state / "statusline_tee.py"), "--off"], input=b"", capture_output=True,
+                       env=os.environ, timeout=30) if (state / "statusline_tee.py").exists() else None
+check("A15 a hand-broken config.json: off and the tee's --off refuse and touch nothing",
+      r_off.returncode != 0 and (r_tee is None or r_tee.returncode != 0) and sp_.read_bytes() == before_
+      and (state / "config.json").read_text(encoding="utf-8") == "{ not json")
+fresh_bridge()
+sp_.write_text(json.dumps(ORIG_SETTINGS, indent=2), encoding="utf-8")
+cli("statusline", "on")
+cli("statusline", "off")
 check("#21 bridge off removes the tee and forgets the saved statusline", not (state / "statusline_tee.py").exists()
       and not {"statusline_passthrough", "statusline_original"} & set(json.loads((state / "config.json").read_text(
           encoding="utf-8")) if (state / "config.json").is_file() else {}))
