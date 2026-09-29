@@ -7,7 +7,11 @@
 
 פלאגין ל-Claude Code (אפליקציית הדסקטופ והטרמינל). מתקינים פעם אחת, ומשם זה עובד לבד.
 
-> **התקנת גרסה 1.0.3 ומטה? לעדכן ל-1.0.4.** אין שום אינדיקציה שהפלאגין שולח מידע החוצה (הוא לא שולח כלום לשום
+> **1.0.5:** באפליקציית הדסקטופ, העצירה כבר לא תלויה בכך שהמודל מציית לבדיקת המכסה. ה-sentinel קורא בעצמו את
+> תוצאת `get_usage`, ומודל שמתעלם מבדיקה או מהוראת עצירה נחסם זמנית (ראו [איך הוא יודע](#איך-הוא-יודע-שהמכסה-נגמרת)).
+> עדכון: [סעיף עדכון](#עדכון).
+
+> **התקנת גרסה 1.0.3 ומטה? לעדכן ל-1.0.5.** אין שום אינדיקציה שהפלאגין שולח מידע החוצה (הוא לא שולח כלום לשום
 > מקום). הבעיה שתוקנה: בגרסאות 1.0.3 ומטה, קובץ ה-ZIP של handoff יכול היה לכלול קובץ רגיש מתוך `workspace/`.
 > לא לשתף ZIP שנוצר בגרסה ישנה. עדכון: [סעיף עדכון](#עדכון). לבדוק handoff ישן: אמור ל-Claude "תריץ verify על
 > תיקיית ה-handoff הזו".
@@ -30,10 +34,10 @@ claude plugin marketplace add ofeklevy11/claude-handoff && claude plugin install
 <details><summary>סקריפט התקנה (Windows / macOS / Linux)</summary>
 
 ```powershell
-irm https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.4/install.ps1 | iex
+irm https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.5/install.ps1 | iex
 ```
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.4/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.5/install.sh | sh
 ```
 </details>
 
@@ -73,8 +77,12 @@ Windows, macOS ו-Linux, עם Python 3.8 ו-3.12. התקנה חיה ובדיקת
 
 | איפה | מקור המספרים |
 |---|---|
-| **אפליקציית הדסקטופ** | הכלי המובנה `get_usage`, אותם מספרים שבכרטיס השימוש. בדיקה שקטה כל 15 דקות, ומ-60% ומעלה כל 5 דקות. עובד מיד אחרי ההתקנה |
+| **אפליקציית הדסקטופ** | הכלי המובנה `get_usage`, אותם מספרים שבכרטיס השימוש. בדיקה שקטה כל 15 דקות, ומ-60% ומעלה כל 5 דקות. ה-sentinel קורא את התוצאה בעצמו ומחליט אם לעצור, כך שהמודל רק צריך לקרוא לכלי. עובד מיד אחרי ההתקנה |
 | **טרמינל** | Claude Code מעביר את `rate_limits` ל-statusline. בפעם הראשונה Claude שואל אם לחבר "גשר" שקורא אותם. ה-statusline שלך לא משתנה, ו-`statusline off` מחזיר את ההגדרות בדיוק ומסיר את הגשר. settings.json לא תקין? הגשר מסרב ולא נוגע בו |
+
+**מודל שמתעלם (1.0.5):** בדיקה שהמודל התעלם ממנה במשך 2 קריאות לכלים, או הוראת עצירה שהתעלם ממנה פעם אחת, גורמות
+ל-sentinel לדחות את הקריאה הבאה ל-Write, Edit, MultiEdit, NotebookEdit או Bash, עם הסיבה. הוא לא דוחה Read, Grep או
+Glob, לא את הפקודות של handoff עצמו, ולא סוכני-משנה. לכל היותר 3 דחיות לכל בקשה, ואז הוא משחרר.
 
 ## לראות שזה עובד (תרגיל, בדקה)
 
@@ -131,9 +139,10 @@ claude plugin update handoff@claude-handoff
 ## בדיקות
 
 ```bash
-python tests/run_tests.py        # 312 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
+python tests/run_tests.py        # 336 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
                                  # hook כתהליך אמיתי, גשר ה-statusline, pipeline מלא עם שער חיובי ושלילי, תרגיל,
                                  # ו-1.0.4: קישורים, סודות ב-workspace, ZIP נייד, git, הזרקת מבנה, סשן אחד בתרגיל
+                                 # ו-1.0.5: קריאת get_usage ב-hook, דחייה של כלי אחרי בדיקה או עצירה שהמודל התעלם מהן
 python tests/install_test.py     # התקנה אמיתית של הפלאגין לתיקיית הגדרות זמנית (בלי לגעת בשלך)
 python tests/harness_test.py     # תהליך Claude Code אמיתי: הפלאגין נטען, ה-hook רץ, וההודעה מוזרקת למודל. בלי עלות
 python tests/harness_test.py --installed   # אותו דבר על הפלאגין שמותקן אצלך, עם ההגדרות שלך
@@ -162,6 +171,9 @@ paste into a new session or another account. You pick up exactly where you left 
 - **Terminal:** Claude Code exposes `rate_limits` only to the statusline. On first use Claude offers to add a
   pass-through bridge. Your statusline looks the same, and `statusline off` restores settings.json exactly and
   removes the bridge. An invalid settings.json is never touched.
+- **If the model ignores it (1.0.5):** a probe ignored for 2 tool calls, or a stop ignored for 1, makes the sentinel
+  turn away the next Write, Edit, MultiEdit, NotebookEdit or Bash call with the reason (never Read, Grep or Glob, never
+  the handoff's own commands, never subagents). At most 3 times per request, then it lets go.
 - **Gate:** a handoff is only delivered when `finalize` prints `GATE: PASS`. That requires no empty or duplicate
   sections, numbered next steps (a missing path only warns), a complete copy of a temporary work dir, and zero secrets in
   any text file, `workspace/` included. The ZIP leaves out `CLAUDE.local.md` and auto-memory, and shows your home
@@ -174,7 +186,7 @@ paste into a new session or another account. You pick up exactly where you left 
   new session. Uninstalling with the terminal bridge on? `python "$HOME/.claude/handoff/statusline_tee.py" --off`
   (PowerShell or bash; `python3` on macOS).
 - Requires Python 3.8+ (and Git Bash on Windows, which Claude Code already uses). Everything stays local.
-- Tests: `python tests/run_tests.py` (offline, 312 checks), `tests/install_test.py` (real plugin install
+- Tests: `python tests/run_tests.py` (offline, 336 checks), `tests/install_test.py` (real plugin install
   into a throwaway config), `tests/harness_test.py` (real Claude Code process: plugin loads, hook fires, stop
   message is injected; free), `tests/e2e.py` (real headless Claude session: must stop mid-task and pass the gate).
 

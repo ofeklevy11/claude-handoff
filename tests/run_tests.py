@@ -60,7 +60,8 @@ skill_md = (PLUGIN / "skills" / "handoff" / "SKILL.md").read_text(encoding="utf-
 fm = re.match(r"^---\n(.*?)\n---\n", skill_md, re.S)
 check("SKILL.md has frontmatter with name + description", fm and "name: handoff" in fm.group(1) and "description:" in fm.group(1))
 cmds = [hh["command"] for ev in hk["hooks"].values() for g in ev for hh in g["hooks"]]
-check("hooks: UserPromptSubmit + PostToolUse(*)", set(hk["hooks"]) == {"UserPromptSubmit", "PostToolUse"}
+check("hooks: UserPromptSubmit + PostToolUse(*) + PreToolUse (1.0.5)",
+      set(hk["hooks"]) == {"UserPromptSubmit", "PostToolUse", "PreToolUse"}
       and hk["hooks"]["PostToolUse"][0].get("matcher") == "*")
 check("every hook path exists inside the plugin", all(
     (PLUGIN / re.search(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\"]+)", c).group(1)).is_file() for c in cmds))
@@ -356,6 +357,177 @@ bad = tempfile.mkdtemp()
 r = subprocess.run([sh, str(SCRIPTS / "run.sh"), "--sentinel"], input=inp.encode(), capture_output=True, timeout=30,
                    env={**os.environ, "PATH": bad, "HANDOFF_STATE_DIR": str(TMP / "nopy")})
 check("no Python on the machine -> hook exits 0 silently", r.returncode == 0 and not r.stdout)
+
+# ------------------------------------------------------------------ 1.0.5: the sentinel reads get_usage itself
+section("desktop: the sentinel reads get_usage itself, and escalates a probe or stop the model ignored")
+GU = "mcp__ccd_session_mgmt__get_usage"
+parse_usage = getattr(s, "parse_usage", None)
+
+
+def gu_text(five, week=31, status="ok", fable=None):
+    wins = [{"label": "5-hour limit", "percentUsed": five, "resetsAt": "2026-09-29T09:20:00.104Z", "resetsIn": "47m"},
+            {"label": "Weekly · all models", "percentUsed": week, "resetsAt": "2026-10-04T16:00:00.104Z"}]
+    if fable is not None:
+        wins.append({"label": "Weekly · Fable", "percentUsed": fable, "resetsAt": "2026-10-04T16:00:00.000Z"})
+    return json.dumps({"plan": {"status": status, "plan": "Max", "windows": wins},
+                       "context": {"session": "self", "status": "ok", "percentUsed": 12}}, indent=2)
+
+
+def pu(resp):
+    try:
+        return parse_usage(resp) if parse_usage else None
+    except Exception:
+        return "crashed"
+
+
+r1 = pu([{"type": "text", "text": gu_text(86, 40, fable=99)}])
+check("#1 get_usage result (list of text blocks) -> 5h + weekly 'all models' (not the per-model window) + reset",
+      isinstance(r1, dict) and r1.get("five_hour") == 86 and r1.get("seven_day") == 40
+      and re.fullmatch(r"\d\d:\d\d", r1.get("five_hour_resets") or ""))
+r2, r3 = pu(gu_text(50, 20)), pu(json.loads(gu_text(51, 21)))
+check("#1 also parses a plain string or an already-decoded dict",
+      isinstance(r2, dict) and r2.get("five_hour") == 50 and isinstance(r3, dict) and r3.get("five_hour") == 51)
+check("#1 weekly falls back to the highest weekly window when 'all models' is missing",
+      (pu(json.dumps({"plan": {"status": "ok", "windows": [{"label": "5-hour limit", "percentUsed": 5},
+                                                          {"label": "Weekly · Opus", "percentUsed": 70},
+                                                          {"label": "Weekly · Fable", "percentUsed": 90}]}})) or {})
+      .get("seven_day") == 90)
+bad = [pu([{"type": "text", "text": gu_text(90, status="unavailable")}]),
+       pu([{"type": "text", "text": json.dumps({"plan": {"status": "not_applicable"}})}]),
+       pu("not json {"), pu(None), pu(42), pu([{"type": "image"}]),
+       pu(json.dumps({"plan": {"status": "ok", "windows": [{"label": "5-hour limit", "percentUsed": "lots"}]}}))]
+check("#3 unavailable / not_applicable / garbage / no numbers -> None (never a crash)",
+      parse_usage is not None and all(b is None for b in bad))
+
+dnow = time.time()
+dst = {"first_seen": dnow - 3600, "last_probe": dnow - 20 * 60}
+m = s.decide("PostToolUse", sid, dnow, cfg, dst, u("get_usage", 35, 10, age=60), True)
+check("#4 desktop: a fresh reading under the threshold does not silence the next probe", m and GU in m)
+check("#5 probe says: mandatory before the next tool, the sentinel reads the result itself, fallback stop",
+      m and "חובה" in m and "לפני הכלי הבא" in m and "בעצמו" in m and "≥80%" in m and "collect" in m)
+check("#6 a probe leaves a pending item in the session state",
+      (dst.get("pending") or {}).get("kind") == "probe")
+ast = {"first_seen": dnow - 3600}
+m = s.decide("PostToolUse", sid, dnow, cfg, ast, u("get_usage", 86, 10, age=5), True)
+check("#8 a stop message leaves a pending 'act' item", m and STOP in m and (ast.get("pending") or {}).get("kind") == "act")
+
+DSID = "desk-105"
+dsf = state / "state" / f"{DSID}.json"
+DENV = {"HANDOFF_FORCE_DESKTOP": "1"}
+
+
+def dhook(event, tool=None, tin=None, resp=None, env=None, sid_=DSID, **extra):
+    p = {"session_id": sid_, "hook_event_name": event, **extra}
+    if tool:
+        p.update({"tool_name": tool, "tool_input": tin or {}})
+    if resp is not None:
+        p["tool_response"] = resp
+    r = hook(json.dumps(p).encode(), {**DENV, **(env or {})})
+    try:
+        out = json.loads(r.stdout or b"{}")
+    except ValueError:
+        out = {"_raw": r.stdout}
+    return r, (out.get("hookSpecificOutput") or {})
+
+
+def dstate(**kw):
+    (state / "state").mkdir(parents=True, exist_ok=True)
+    dsf.write_text(json.dumps({"first_seen": time.time() - 60, "last_probe": time.time(), **kw}), encoding="utf-8")
+
+
+def pending():
+    return json.loads(dsf.read_text(encoding="utf-8")).get("pending") if dsf.is_file() else None
+
+
+def rm(p):
+    if p.exists():
+        p.unlink()
+
+
+def denied(o):
+    return o.get("permissionDecision") == "deny"
+
+
+rm(state / "usage.json")
+dstate()
+r, o = dhook("PostToolUse", GU, resp=[{"type": "text", "text": gu_text(35, 12)}])
+ur = json.loads((state / "usage.json").read_text(encoding="utf-8")) if (state / "usage.json").is_file() else {}
+check("#1 hook: get_usage 35% -> usage.json (source get_usage, 5h 35, weekly 12), silent",
+      r.returncode == 0 and ur.get("source") == "get_usage" and ur.get("five_hour") == 35 and ur.get("seven_day") == 12
+      and STOP not in (o.get("additionalContext") or ""))
+dstate()
+r, o = dhook("PostToolUse", GU, resp=[{"type": "text", "text": gu_text(86, 12)}])
+check("#2 hook: get_usage 86% -> stop message in the same call, no `note` needed",
+      r.returncode == 0 and STOP in (o.get("additionalContext") or "") and (pending() or {}).get("kind") == "act")
+def utext():
+    return (state / "usage.json").read_text(encoding="utf-8") if (state / "usage.json").is_file() else None
+
+
+before = utext()
+dstate()
+r, o = dhook("PostToolUse", GU, resp=[{"type": "text", "text": gu_text(90, status="unavailable")}])
+check("#3 hook: unavailable reading -> exit 0, usage.json untouched",
+      r.returncode == 0 and before is not None and utext() == before)
+rm(state / "usage.json")
+
+dstate(pending={"kind": "probe", "since": time.time(), "ignored": 0, "denied": 0})
+dhook("PostToolUse", "Write", {"file_path": "a.md"})
+dhook("PostToolUse", "ToolSearch", {"query": "select:" + GU})
+p1 = (pending() or {}).get("ignored")
+r, o = dhook("PreToolUse", "Write", {"file_path": "b.md"})
+check("#6 ignores counted (ToolSearch neutral); after 1 ignore the next tool still runs",
+      p1 == 1 and r.returncode == 0 and not denied(o))
+dhook("PostToolUse", "Write", {"file_path": "b.md"})
+r, o = dhook("PreToolUse", "Write", {"file_path": "c.md"})
+why = o.get("permissionDecisionReason") or ""
+check("#7 after 2 ignored tools: PreToolUse denies the next work tool; the reason names get_usage as the next "
+      "call and says it is not an error in this action and not to skip it (Opus skipped to the next file)",
+      r.returncode == 0 and denied(o) and GU in why and o.get("hookEventName") == "PreToolUse"
+      and "לא שגיאה" in why and "אל תדלג" in why and "הקריאה הבאה" in why)
+r, o = dhook("PreToolUse", "Read", {"file_path": "c.md"})
+check("G5 Read is never denied, even with an ignored probe", not denied(o))
+r, o = dhook("PreToolUse", "Bash", {"command": "ls"})
+d2 = denied(o)
+r, o = dhook("PreToolUse", "Write", {"file_path": "d.md"})
+d3 = denied(o)
+r, o = dhook("PreToolUse", "Edit", {"file_path": "c.md"})
+check("#9 at most 3 denials per pending probe, then released (no dead end)",
+      d2 and d3 and not denied(o) and pending() is None)
+dstate(pending={"kind": "probe", "since": time.time(), "ignored": 5, "denied": 0})
+dhook("PostToolUse", GU, resp=[{"type": "text", "text": gu_text(20)}])
+r, o = dhook("PreToolUse", "Write", {"file_path": "d.md"})
+check("#6 calling get_usage clears the pending probe", pending() is None and not denied(o))
+rm(state / "usage.json")
+
+dstate(pending={"kind": "act", "since": time.time(), "ignored": 0, "denied": 0})
+dhook("PostToolUse", "Write", {"file_path": "e.md"})
+r, o = dhook("PreToolUse", "Edit", {"file_path": "e.md"})
+check("#8 stop ignored once -> the next work tool is denied, reason points to the handoff skill",
+      denied(o) and "handoff" in (o.get("permissionDecisionReason") or ""))
+r, o = dhook("PreToolUse", "Bash", {"command": 'sh "/x/run.sh" collect --reason "5h 86%"'})
+check("#8 the handoff's own collect command is never denied", not denied(o))
+dhook("PostToolUse", "Skill", {"skill": "handoff:handoff"})
+r, o = dhook("PreToolUse", "Write", {"file_path": "HANDOFF.md"})
+check("#8 invoking the handoff skill clears the pending stop", pending() is None and not denied(o))
+started = json.loads(dsf.read_text(encoding="utf-8")).get("handoff_started")
+bst = {"first_seen": dnow - 3600, "handoff_started": dnow - 60}
+m = s.decide("PostToolUse", sid, dnow, cfg, bst, u("get_usage", 88, 10, age=5), True)
+check("#8 handoff under way (skill seen): a repeated stop is said but never enforced (HANDOFF.md edits run)",
+      started and m and STOP in m and "pending" not in bst)
+
+dstate()
+r, o = dhook("PreToolUse", "Write", {"file_path": "f.md"})
+check("#10 nothing pending -> PreToolUse exits 0 with no output", r.returncode == 0 and not r.stdout)
+dstate(pending={"kind": "probe", "since": time.time(), "ignored": 9, "denied": 0})
+r, o = dhook("PreToolUse", "Write", {"file_path": "g.md"}, agent_id="sub-1")
+check("#11 subagents are never denied", r.returncode == 0 and not r.stdout)
+r, o = dhook("PreToolUse", "Write", {"file_path": "g.md"}, env={"CLAUDE_CODE_SESSION_ATTENDED": "0"})
+check("#11 unattended sessions are never denied", r.returncode == 0 and not r.stdout)
+pre = (hk["hooks"].get("PreToolUse") or [{}])[0]
+check("#10 hooks.json: PreToolUse only for Write|Edit|MultiEdit|NotebookEdit|Bash, same sentinel command",
+      pre.get("matcher") == "Write|Edit|MultiEdit|NotebookEdit|Bash"
+      and (pre.get("hooks") or [{}])[0].get("command") == hk["hooks"]["PostToolUse"][0]["hooks"][0]["command"])
+rm(dsf)
 
 # ------------------------------------------------------------------ statusline tee + terminal bridge
 section("statusline tee + terminal bridge")
@@ -1140,7 +1312,7 @@ section("1.0.4 · release hygiene (#29 #31-#35)")
 fm_desc = re.search(r"^description:[ \t]*(.*)$", fm.group(1), re.M).group(1) if fm else ""
 check("#29 SKILL.md description is valid YAML (quoted or block scalar)",
       fm_desc[:1] in ("'", '"', ">", "|") or (": " not in fm_desc and " #" not in fm_desc))
-check("#31 version is 1.0.4 everywhere", pl.get("version") == entry.get("version") == mk["metadata"]["version"] == "1.0.4")
+check("#31 version is 1.0.5 everywhere", pl.get("version") == entry.get("version") == mk["metadata"]["version"] == "1.0.5")
 check("#32 README documents updating", "plugin update handoff@claude-handoff" in readme)
 check("#32 README has a security and known-limits section with the notice for 1.0.3 users",
       re.search(r"^## .*אבטחה", readme, re.M) is not None and "1.0.3" in readme)
