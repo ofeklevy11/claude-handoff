@@ -1331,7 +1331,7 @@ def cmd_statusline(a):
         print("terminal bridge:", "ON" if active else "OFF", "·", usage_line(read_usage()))
         return 0
     if L(sp).is_file():
-        write(CLAUDE / "backups" / f"settings.before-handoff-statusline.{int(time.time())}.json", read_raw(sp))
+        write(CLAUDE / "backups" / f"settings.before-handoff-statusline.{time.time_ns()}.json", read_raw(sp))  # unique
     if a.action == "on":
         L(tee).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(Path(__file__).resolve().parent / "statusline_tee.py", L(tee))
@@ -1369,7 +1369,8 @@ def restore_statusline(s, cfg):
         orig = {**(s.get("statusLine") or {}), "type": "command", "command": cfg["statusline_passthrough"]}
     else:  # the saved original is gone (config.json rewritten): take it from the newest backup made before `on`
         orig = None
-        for b in sorted((CLAUDE / "backups").glob("settings.before-handoff-statusline.*.json"), reverse=True):
+        for b in sorted((CLAUDE / "backups").glob("settings.before-handoff-statusline.*.json"),
+                        key=lambda q: q.stat().st_mtime_ns, reverse=True):
             sl = (load_json(b, {}) or {}).get("statusLine")
             if isinstance(sl, dict) and "statusline_tee.py" not in (sl.get("command") or ""):
                 orig = sl
