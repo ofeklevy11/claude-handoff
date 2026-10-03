@@ -7,11 +7,15 @@
 
 פלאגין ל-Claude Code (אפליקציית הדסקטופ והטרמינל). מתקינים פעם אחת, ומשם זה עובד לבד.
 
+> **1.0.6: macOS ולינוקס, ו-ZIP שעולה.** קובץ ה-ZIP ש-GitHub מוריד ("Download ZIP") עולה עכשיו כמו שהוא ב-"Upload a
+> plugin", כי שורש הריפו הוא הפלאגין. ב-Mac: Python נמצא גם כשהאפליקציה נפתחה מה-Dock (Homebrew, python.org), בלי
+> חלון "התקנת כלי מפתחים" בכל קריאה, ו-handoff לא נופל כש-macOS חוסם גישה ל-Desktop (עובר ל-`~/handoffs`).
+
 > **1.0.5:** באפליקציית הדסקטופ, העצירה כבר לא תלויה בכך שהמודל מציית לבדיקת המכסה. ה-sentinel קורא בעצמו את
 > תוצאת `get_usage`, ומודל שמתעלם מבדיקה או מהוראת עצירה נחסם זמנית (ראו [איך הוא יודע](#איך-הוא-יודע-שהמכסה-נגמרת)).
 > עדכון: [סעיף עדכון](#עדכון).
 
-> **התקנת גרסה 1.0.3 ומטה? לעדכן ל-1.0.5.** אין שום אינדיקציה שהפלאגין שולח מידע החוצה (הוא לא שולח כלום לשום
+> **התקנת גרסה 1.0.3 ומטה? לעדכן לגרסה האחרונה (1.0.6).** אין שום אינדיקציה שהפלאגין שולח מידע החוצה (הוא לא שולח כלום לשום
 > מקום). הבעיה שתוקנה: בגרסאות 1.0.3 ומטה, קובץ ה-ZIP של handoff יכול היה לכלול קובץ רגיש מתוך `workspace/`.
 > לא לשתף ZIP שנוצר בגרסה ישנה. עדכון: [סעיף עדכון](#עדכון). לבדוק handoff ישן: אמור ל-Claude "תריץ verify על
 > תיקיית ה-handoff הזו".
@@ -34,18 +38,34 @@ claude plugin marketplace add ofeklevy11/claude-handoff && claude plugin install
 <details><summary>סקריפט התקנה (Windows / macOS / Linux)</summary>
 
 ```powershell
-irm https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.5/install.ps1 | iex
+irm https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.6/install.ps1 | iex
 ```
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.5/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.6/install.sh | sh
 ```
 </details>
 
+<details><summary>העלאה כקובץ ZIP ("Upload a plugin" ב-claude.ai או באפליקציית הדסקטופ)</summary>
+
+כל אחד מהשניים עובד:
+- ה-ZIP ש-GitHub נותן: **Code ← Download ZIP** (`claude-handoff-main.zip`), מעלים כמו שהוא.
+- ZIP נקי של הפלאגין בלבד מדף ה-[Releases](https://github.com/ofeklevy11/claude-handoff/releases) (`handoff-1.0.6.zip`),
+  או בונים אותו בעצמכם: `python tools/build_zip.py` ← `dist/handoff-1.0.6.zip`.
+</details>
+
 זהו. פותחים **סשן חדש**, ו-handoff פעיל. לא צריך לערוך הגדרות: הסקיל וה-hooks נטענים מהפלאגין.
-דרישות: Python 3.8 ומעלה. ב-Windows צריך גם Git Bash, שכבר מגיע עם Claude Code.
+
+**דרישות:** Python 3.8 ומעלה.
+- **macOS:** כל Python 3.8+ עובד: של Apple (`xcode-select --install`), Homebrew (`brew install python`) או python.org. הוא
+  נמצא גם כשהאפליקציה נפתחה מה-Dock ולא רואה את ה-PATH של הטרמינל. בלי כלי המפתחים, `/usr/bin/python3` לא מורץ
+  בכלל, כדי שלא יקפוץ חלון התקנה.
+- **Linux:** `python3` (ב-Debian/Ubuntu: `sudo apt install python3`).
+- **Windows:** גם Git Bash, שכבר מגיע עם Claude Code.
+- Python במקום לא רגיל? `HANDOFF_PYTHON=/path/to/python3`.
 
 **נבדק על:** Windows 11 (אפליקציית הדסקטופ של Claude Code, כולל תרגיל חי מקצה לקצה). חבילת הבדיקות רצה ב-CI על
-Windows, macOS ו-Linux, עם Python 3.8 ו-3.12. התקנה חיה ובדיקת harness נבדקו רק ב-Windows. [דוח השחרור](RELEASE-REPORT.html).
+Windows, macOS ו-Linux, עם Python 3.8 ו-3.12, וגם ב-Docker על Linux. התקנה חיה ובדיקת harness נבדקו רק ב-Windows.
+[דוח השחרור](RELEASE-REPORT.html).
 
 ## מה קורה
 
@@ -56,7 +76,8 @@ Windows, macOS ו-Linux, עם Python 3.8 ו-3.12. התקנה חיה ובדיקת
 | ידנית ("תכין handoff", "המנוי נגמר", "hand off this session") | אותו דבר, מתי שתרצה |
 | בסשן החדש ("המשך מ-handoff") | קורא, מאמת שהמצב תואם, ממשיך מהצעד הבא |
 
-תיקיית ה-handoff נוצרת ב-`Desktop/handoffs` (אם אין Desktop, ב-`~/handoffs`):
+תיקיית ה-handoff נוצרת ב-`Desktop/handoffs`. אם אין Desktop, או שאי אפשר לכתוב אליו (למשל macOS חוסם לאפליקציה גישה
+ל-Desktop), היא נוצרת ב-`~/handoffs` והפקודה אומרת את זה:
 
 ```
 2026-09-28_1412_<שם>/
@@ -139,10 +160,13 @@ claude plugin update handoff@claude-handoff
 ## בדיקות
 
 ```bash
-python tests/run_tests.py        # 336 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
+python tests/run_tests.py        # 357 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
                                  # hook כתהליך אמיתי, גשר ה-statusline, pipeline מלא עם שער חיובי ושלילי, תרגיל,
                                  # ו-1.0.4: קישורים, סודות ב-workspace, ZIP נייד, git, הזרקת מבנה, סשן אחד בתרגיל
                                  # ו-1.0.5: קריאת get_usage ב-hook, דחייה של כלי אחרי בדיקה או עצירה שהמודל התעלם מהן
+                                 # ו-1.0.6: ZIP שעולה (גם של GitHub), Python מחוץ ל-PATH ב-Mac, בלי חלון כלי המפתחים,
+                                 # Desktop חסום -> ~/handoffs, תיקיות דרך symlink, נתיבי macOS/Linux בשער
+sh tests/mac_check.sh gui        # במק אמיתי: PATH של אפליקציה מה-Dock, Desktop חסום (ב-CI גם בלי כלי מפתחים: noclt)
 python tests/install_test.py     # התקנה אמיתית של הפלאגין לתיקיית הגדרות זמנית (בלי לגעת בשלך)
 python tests/harness_test.py     # תהליך Claude Code אמיתי: הפלאגין נטען, ה-hook רץ, וההודעה מוזרקת למודל. בלי עלות
 python tests/harness_test.py --installed   # אותו דבר על הפלאגין שמותקן אצלך, עם ההגדרות שלך
@@ -185,8 +209,14 @@ paste into a new session or another account. You pick up exactly where you left 
   `claude plugin marketplace update claude-handoff && claude plugin update handoff@claude-handoff`, then open a
   new session. Uninstalling with the terminal bridge on? `python "$HOME/.claude/handoff/statusline_tee.py" --off`
   (PowerShell or bash; `python3` on macOS).
-- Requires Python 3.8+ (and Git Bash on Windows, which Claude Code already uses). Everything stays local.
-- Tests: `python tests/run_tests.py` (offline, 336 checks), `tests/install_test.py` (real plugin install
+- **1.0.6, macOS + Linux:** GitHub's "Download ZIP" uploads as is in "Upload a plugin" (the repo root is the plugin;
+  a plugin-only ZIP: `python tools/build_zip.py` or the release asset). On macOS Python is found even when the app
+  was opened from the Dock (Homebrew, python.org, Apple's), the `/usr/bin/python3` stub is never run without the
+  developer tools (no install popup), and a Desktop that macOS will not let the app write to falls back to `~/handoffs`.
+- Requires Python 3.8+ (macOS: `xcode-select --install`, `brew install python` or python.org; Linux: `python3`;
+  Windows: plus Git Bash, which Claude Code already uses). Unusual location: `HANDOFF_PYTHON=/path/to/python3`.
+  Everything stays local.
+- Tests: `python tests/run_tests.py` (offline, 357 checks), `tests/install_test.py` (real plugin install
   into a throwaway config), `tests/harness_test.py` (real Claude Code process: plugin loads, hook fires, stop
   message is injected; free), `tests/e2e.py` (real headless Claude session: must stop mid-task and pass the gate).
 

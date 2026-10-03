@@ -20,7 +20,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PLUGIN = ROOT / "plugins" / "handoff"
+PLUGIN = ROOT  # 1.0.6: the repo root is the plugin, so the ZIP GitHub makes of it uploads as is
 SCRIPTS = PLUGIN / "skills" / "handoff" / "scripts"
 TMP = Path(tempfile.mkdtemp(prefix="handoff-tests-")).resolve()  # resolved: CI temp dirs can be 8.3 short names
 os.environ.update({"CLAUDE_CONFIG_DIR": str(TMP / "claude"), "HANDOFF_STATE_DIR": str(TMP / "state"),
@@ -356,7 +356,7 @@ check("subagent tool call -> never hands off", r.returncode == 0 and not r.stdou
 bad = tempfile.mkdtemp()
 r = subprocess.run([sh, str(SCRIPTS / "run.sh"), "--sentinel"], input=inp.encode(), capture_output=True, timeout=30,
                    env={**os.environ, "PATH": bad, "HANDOFF_STATE_DIR": str(TMP / "nopy")})
-check("no Python on the machine -> hook exits 0 silently", r.returncode == 0 and not r.stdout)
+check("PATH without Python (or even dirname) -> hook exits 0, no output, never an error", r.returncode == 0 and not r.stdout)
 
 # ------------------------------------------------------------------ 1.0.5: the sentinel reads get_usage itself
 section("desktop: the sentinel reads get_usage itself, and escalates a probe or stop the model ignored")
@@ -1312,7 +1312,7 @@ section("1.0.4 · release hygiene (#29 #31-#35)")
 fm_desc = re.search(r"^description:[ \t]*(.*)$", fm.group(1), re.M).group(1) if fm else ""
 check("#29 SKILL.md description is valid YAML (quoted or block scalar)",
       fm_desc[:1] in ("'", '"', ">", "|") or (": " not in fm_desc and " #" not in fm_desc))
-check("#31 version is 1.0.5 everywhere", pl.get("version") == entry.get("version") == mk["metadata"]["version"] == "1.0.5")
+check("#31 version is 1.0.6 everywhere", pl.get("version") == entry.get("version") == mk["metadata"]["version"] == "1.0.6")
 check("#32 README documents updating", "plugin update handoff@claude-handoff" in readme)
 check("#32 README has a security and known-limits section with the notice for 1.0.3 users",
       re.search(r"^## .*אבטחה", readme, re.M) is not None and "1.0.3" in readme)
@@ -1322,6 +1322,205 @@ raw = re.findall(r"raw\.githubusercontent\.com/\S+", readme + "".join(
 check(f"#34 install links pinned to v{pl.get('version')} (not main)", raw and all(f"/v{pl.get('version')}/" in x for x in raw))
 rep_html = (ROOT / "RELEASE-REPORT.html").read_text(encoding="utf-8") if (ROOT / "RELEASE-REPORT.html").is_file() else ""
 check("#35 RELEASE-REPORT.html points to 1.0.4", "v1.0.4" in rep_html[:6000])
+
+# ------------------------------------------------------------------ 1.0.6: macOS + Linux, and a ZIP that uploads
+section("1.0.6 · macOS + Linux, and a ZIP that uploads (#36-#48)")
+sys.path.insert(0, str(ROOT / "tools"))
+import zipfile as _zf  # noqa: E402
+import build_zip as bz  # noqa: E402
+
+check("#36 the repo root is the plugin: .claude-plugin/plugin.json, hooks/, skills/ at the root",
+      (ROOT / ".claude-plugin" / "plugin.json").is_file() and (ROOT / "hooks" / "hooks.json").is_file()
+      and (ROOT / "skills" / "handoff" / "SKILL.md").is_file() and not (ROOT / "plugins").exists())
+check("#36 the marketplace installs it from the root (source ./)", entry.get("source") == "./")
+
+
+def tracked():
+    try:
+        out_ = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, timeout=30, check=True).stdout
+        return [n for n in out_.decode("utf-8").split("\0") if n and (ROOT / n).is_file()]
+    except (OSError, subprocess.SubprocessError):
+        return [p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*") if p.is_file() and ".git" not in p.parts]
+
+
+# GitHub's "Download ZIP" (the file in the bug report): every tracked file inside one folder, <repo>-<branch>/
+gh_zip, gh_old = TMP / "claude-handoff-main.zip", TMP / "claude-handoff-1.0.5-layout.zip"
+with _zf.ZipFile(gh_zip, "w") as z_:
+    for n_ in tracked():
+        z_.write(ROOT / n_, "claude-handoff-main/" + n_)
+with _zf.ZipFile(gh_zip) as zi_, _zf.ZipFile(gh_old, "w") as zo_:  # 1.0.5: no plugin.json at the repo root
+    for n_ in zi_.namelist():
+        if n_ != "claude-handoff-main/.claude-plugin/plugin.json":
+            zo_.writestr(n_, zi_.read(n_))
+ok_gh, where_gh = bz.upload_rule(gh_zip)
+check(f"#37 GitHub's own ZIP of the repo passes the uploader's rule ({where_gh})", ok_gh)
+check("#37 control: that ZIP without the root plugin.json (the 1.0.5 layout) is refused", not bz.upload_rule(gh_old)[0])
+built, _ = bz.build(TMP / "dist" / "handoff.zip")
+ok_b, where_b = bz.upload_rule(built)
+with _zf.ZipFile(built) as z_:
+    names_ = z_.namelist()
+    run_info = z_.getinfo("skills/handoff/scripts/run.sh") if "skills/handoff/scripts/run.sh" in names_ else None
+    run_bytes = z_.read(run_info) if run_info else b"\r"
+check("#38 tools/build_zip.py: plugin.json at the ZIP root, upload rule OK", ok_b and where_b == ".claude-plugin/plugin.json")
+check("#38 the built ZIP holds the whole plugin and nothing else (no tests, CI, tools, caches)",
+      {"hooks/hooks.json", "skills/handoff/SKILL.md", "skills/handoff/TEMPLATE.md", "skills/handoff/scripts/handoff.py",
+       "skills/handoff/scripts/sentinel.py", "skills/handoff/scripts/statusline_tee.py"} <= set(names_)
+      and not any(n.startswith(("tests/", ".github/", "tools/")) or "__pycache__" in n or n.endswith(".pyc") for n in names_))
+check("#38 run.sh in the ZIP: LF endings and the executable bit",
+      run_info is not None and b"\r" not in run_bytes and (run_info.external_attr >> 16) & 0o111 == 0o111)
+hk_cmds = [x["command"] for ev in hk["hooks"].values() for g in ev for x in g["hooks"]]
+check("#47 the hook command is unchanged (Windows / existing installs keep working)",
+      hk_cmds and all(c == 'sh "${CLAUDE_PLUGIN_ROOT}/skills/handoff/scripts/run.sh" --sentinel' for c in hk_cmds))
+
+
+def posix(p):
+    """A path the way sh sees it (Git Bash: /c/Users/...)."""
+    cp = shutil.which("cygpath")
+    if os.name == "nt" and cp:
+        return subprocess.run([cp, "-u", str(p)], capture_output=True, text=True, timeout=30).stdout.strip()
+    return Path(p).as_posix()
+
+
+# PATH the way macOS hands it to an app opened from the Dock: the system tools, no Python on it
+if os.name == "nt":
+    gui_path = os.path.dirname(shutil.which("dirname") or sh)
+else:
+    gui_bin = TMP / "gui-bin"
+    gui_bin.mkdir()
+    for tool_ in ("uname", "mkdir"):  # the launcher needs no more (and finds /usr/bin/xcode-select itself)
+        if shutil.which(tool_):
+            os.symlink(shutil.which(tool_), gui_bin / tool_)
+    gui_path = str(gui_bin)
+check("#39 test PATH has no Python on it (like an app opened from the macOS Dock)",
+      not any(shutil.which(c_, path=gui_path) for c_ in ("python3", "python", "py")))
+
+
+def py_ok(p):
+    try:
+        return subprocess.run([p, "-c", "import sys; sys.exit(sys.version_info < (3, 8))"], capture_output=True,
+                              timeout=30).returncode == 0
+    except OSError:
+        return False
+
+
+INSTALL_DIRS = ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/opt/local/bin/python3", "/usr/bin/python3",
+                "/Library/Frameworks/Python.framework/Versions/Current/bin/python3", "/bin/python3"]
+expect_py = os.name != "nt" and any(os.path.isfile(p) and py_ok(p) for p in INSTALL_DIRS)
+gst = TMP / "gui-state"
+gst.mkdir()
+(gst / "usage.json").write_text(json.dumps(u("statusline", 85, 20)), encoding="utf-8")
+gui_inp = json.dumps({"session_id": "gui-1", "hook_event_name": "PostToolUse"}).encode()
+r = hook(gui_inp, {"PATH": gui_path, "HANDOFF_STATE_DIR": str(gst)})
+gctx = (json.loads(r.stdout or b"{}").get("hookSpecificOutput") or {}).get("additionalContext", "")
+if expect_py:
+    check("#39 Python only in an install folder (Homebrew, python.org, /usr/bin): the hook still finds it and stops",
+          r.returncode == 0 and STOP in gctx)
+else:
+    check("#39 no Python reachable at all: the hook exits 0 silently", r.returncode == 0 and not r.stdout)
+gst2 = TMP / "gui-state-2"
+gst2.mkdir()
+(gst2 / "usage.json").write_text(json.dumps(u("statusline", 85, 20)), encoding="utf-8")
+r = hook(gui_inp, {"PATH": gui_path, "HANDOFF_STATE_DIR": str(gst2), "HANDOFF_PYTHON": posix(sys.executable)})
+gctx = (json.loads(r.stdout or b"{}").get("hookSpecificOutput") or {}).get("additionalContext", "")
+check("#40 HANDOFF_PYTHON is honoured when nothing is on PATH", r.returncode == 0 and STOP in gctx)
+cached = (state / "python-path").read_text(encoding="utf-8").strip() if (state / "python-path").is_file() else ""
+check(f"#41 the launcher caches the full path it found ({cached})", cached.startswith("/") or os.path.isabs(cached))
+mig = TMP / "migrate-state"
+mig.mkdir()
+(mig / "python-path").write_text("python3", encoding="utf-8")  # what 1.0.5 wrote
+r = hook(gui_inp, {"HANDOFF_STATE_DIR": str(mig)})
+check("#41 a bare name cached by 1.0.5 is replaced by a full path",
+      r.returncode == 0 and (mig / "python-path").read_text(encoding="utf-8").strip().startswith("/"))
+
+stub_dir, marker = TMP / "stub-bin", TMP / "stub-ran"
+stub_dir.mkdir()
+(stub_dir / "python3").write_bytes(f'#!/bin/sh\necho ran > "{posix(marker)}"\nexit 1\n'.encode("utf-8"))
+os.chmod(stub_dir / "python3", 0o755)
+stub_env = {"PATH": gui_path, "HANDOFF_STATE_DIR": str(TMP / "stub-state"), "HANDOFF_TEST_OS": "Darwin",
+            "HANDOFF_TEST_STUB": posix(stub_dir / "python3"), "HANDOFF_PYTHON": posix(stub_dir / "python3")}
+r = hook(gui_inp, stub_env)
+check("#42 macOS without the developer tools: the /usr/bin/python3 stub is never run (no install popup)",
+      r.returncode == 0 and not marker.exists())
+r = hook(gui_inp, {**stub_env, "HANDOFF_TEST_OS": "Linux", "HANDOFF_STATE_DIR": str(TMP / "stub-state-2")})
+check("#42 control: on Linux the same file is tried, so the check above can fail", marker.exists())
+
+blocker, fb_home = TMP / "not-a-folder", TMP / "fallback-home"
+blocker.write_text("x", encoding="utf-8")
+fb_home.mkdir()
+r = subprocess.run([sh, str(SCRIPTS / "run.sh"), "collect", "--session", str(tr), "--name", "desktop-blocked",
+                    "--reason", "x"], capture_output=True, text=True, encoding="utf-8", timeout=120,
+                   env={**os.environ, "HANDOFF_OUT_DIR": str(blocker / "handoffs"), "HOME": str(fb_home),
+                        "USERPROFILE": str(fb_home)})
+fb_folder = Path(r.stdout.splitlines()[0].strip()) if r.returncode == 0 and r.stdout.strip() else None
+check("#43 handoff folder not writable (macOS privacy on Desktop): collect falls back to ~/handoffs, no crash",
+      fb_folder is not None and fb_folder.resolve().parent == (fb_home / "handoffs").resolve()
+      and (fb_folder / "HANDOFF.md").is_file())
+check("#43 ... and says where it went (stderr, so the folder stays the first line of stdout)",
+      "note: cannot write to" in r.stderr and "handoffs" in r.stderr)
+
+la_, lb_ = TMP / "latest-a", TMP / "latest-b"
+old_fb, old_out = h.FALLBACK_OUT, os.environ["HANDOFF_OUT_DIR"]
+seen_ = []
+for newer, older in ((lb_, la_), (la_, lb_)):
+    for d_, val in ((newer, "NEWER"), (older, "OLDER")):
+        d_.mkdir(exist_ok=True)
+        (d_ / "LATEST.txt").write_text(val + "\n", encoding="utf-8")
+    os.utime(older / "LATEST.txt", (time.time() - 3600, time.time() - 3600))
+    h.FALLBACK_OUT, os.environ["HANDOFF_OUT_DIR"] = lb_, str(la_)
+    buf_ = io.StringIO()
+    with redirect_stdout(buf_):
+        h.cmd_latest(None)
+    seen_.append(buf_.getvalue().strip())
+h.FALLBACK_OUT, os.environ["HANDOFF_OUT_DIR"] = old_fb, old_out
+check(f"#44 latest returns the newest handoff, in the configured folder or in the ~/handoffs fallback {seen_}",
+      seen_ == ["NEWER", "NEWER"])
+
+real_d, link_d, real_e, link_e = (TMP / x for x in ("real-proj", "link-proj", "real-proj-2", "link-proj-2"))
+for d_ in (real_d, real_e):
+    d_.mkdir()
+try:
+    os.symlink(real_d, link_d, target_is_directory=True)
+    os.symlink(real_e, link_e, target_is_directory=True)
+    can_link = True
+except (OSError, NotImplementedError):
+    can_link = False  # Windows without developer mode: no symlinks to test with
+if can_link:
+    t_live = TMP / "live-transcript.jsonl"
+    t_live.write_text("{}\n", encoding="utf-8")
+    (state / "state").mkdir(parents=True, exist_ok=True)
+    (state / "state" / "linked-1.json").write_text(json.dumps({"transcript": str(t_live), "cwd": str(real_d),
+                                                               "last_seen": time.time() + 10 ** 6}), encoding="utf-8")
+    got_live = h.find_transcript("self", str(link_d))
+    (state / "state" / "linked-1.json").unlink()
+    pdir = h.PROJECTS / h.encode_cwd(os.path.realpath(str(real_e)))
+    pdir.mkdir(parents=True)
+    (pdir / "enc.jsonl").write_text("{}\n", encoding="utf-8")
+    got_enc = h.find_transcript("self", str(link_e))
+    check("#45 this session's transcript is found from a symlinked folder (macOS /tmp, /var -> /private)",
+          got_live == t_live and got_enc == pdir / "enc.jsonl")
+else:
+    check("#45 this session's transcript is found from a symlinked folder (n/a: no symlinks on this Windows)", True)
+
+check("#48 /usr/bin/git is used unless it is the macOS developer-tools stub", h.macos_stub("/usr/bin/git") is False
+      and h.macos_stub("/opt/homebrew/bin/git") is False)
+
+if folder:
+    gcopy = TMP / "gate-copy"
+    shutil.copytree(folder, gcopy)
+    hm = gcopy / "HANDOFF.md"
+    hm.write_text(hm.read_text(encoding="utf-8").replace("## 10.", "- `~/definitely-missing-handoff-xyz/a.md` · "
+                  f"`{posix(work)}` · `/etc/nginx/sites-enabled/app`\n\n## 10.", 1), encoding="utf-8")
+    buf_ = io.StringIO()
+    with redirect_stdout(buf_):
+        h.cmd_verify(argparse.Namespace(folder=str(gcopy), allow_partial=False))
+    warn_ = next((x for x in buf_.getvalue().splitlines() if x.strip().startswith("!") and "הנתיבים" in x), "")
+    if os.name != "nt":
+        check("#46 the gate warns about a missing macOS/Linux path, not about one that exists or a server path",
+              "definitely-missing-handoff-xyz" in warn_ and posix(work) not in warn_ and "/etc/nginx" not in warn_)
+    else:
+        check("#46 Windows: POSIX paths are not checked (unchanged)", "definitely-missing-handoff-xyz" not in warn_)
+else:
+    check("#46 the gate checks macOS/Linux paths (no pipeline folder to test with)", False)
 
 for p_ in (SHORT,):
     shutil.rmtree(p_, ignore_errors=True)

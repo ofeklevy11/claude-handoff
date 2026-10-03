@@ -1,5 +1,5 @@
 # claude-handoff one-line install (Windows PowerShell):
-#   irm https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.5/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/ofeklevy11/claude-handoff/v1.0.6/install.ps1 | iex
 # Same as typing in Claude Code:  /plugin marketplace add ofeklevy11/claude-handoff
 #                                 /plugin install handoff@claude-handoff
 if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
