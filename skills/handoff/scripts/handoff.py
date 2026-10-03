@@ -640,8 +640,18 @@ def md_errors(S, n=20):
     return "\n".join(out)
 
 
+def macos_stub(exe):
+    """macOS without the developer tools: /usr/bin/git (and python3) only open an "install developer tools" dialog."""
+    if sys.platform != "darwin" or exe != "/usr/bin/" + Path(exe).name:
+        return False
+    try:
+        return subprocess.run(["/usr/bin/xcode-select", "-p"], capture_output=True, timeout=10).returncode != 0
+    except (OSError, subprocess.SubprocessError):
+        return True
+
+
 def git_info(cwd):
-    if not cwd or not Path(cwd).is_dir():
+    if not cwd or not Path(cwd).is_dir() or macos_stub(shutil.which("git") or ""):
         return None
 
     def g(*a):

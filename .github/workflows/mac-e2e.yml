@@ -1,0 +1,54 @@
+name: mac-e2e
+
+# Real-Mac checks the offline suite cannot make: a real install, a real Claude Code process with the PATH an app
+# opened from the Dock gets, and a Mac with no developer tools at all. No Claude login, no cost.
+on:
+  push:
+    branches: ["release/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    name: mac-e2e (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Homebrew Python (outside the Dock PATH) + Claude Code CLI
+        run: |
+          BREW=$(brew --prefix)
+          [ -x "$BREW/bin/python3" ] || brew install python3
+          "$BREW/bin/python3" --version
+          echo "BREW_PY=$BREW/bin/python3" >> "$GITHUB_ENV"
+          curl -fsSL https://claude.ai/install.sh | bash
+          "$HOME/.local/bin/claude" --version
+          echo "CLAUDE_BIN=$HOME/.local/bin/claude" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/old/scripts"
+          git show v1.0.5:plugins/handoff/skills/handoff/scripts/run.sh > "$RUNNER_TEMP/old/scripts/run.sh"
+          git show v1.0.5:plugins/handoff/skills/handoff/scripts/sentinel.py > "$RUNNER_TEMP/old/scripts/sentinel.py"
+          echo "OLD_RUN=$RUNNER_TEMP/old/scripts/run.sh" >> "$GITHUB_ENV"
+      - name: Real install into a throwaway config
+        run: '"$BREW_PY" tests/install_test.py'
+      - name: Real Claude Code, Dock PATH (developer tools present)
+        run: env PATH=/usr/bin:/bin:/usr/sbin:/sbin "$BREW_PY" tests/harness_test.py
+      - name: Dock PATH checks (developer tools present)
+        run: sh tests/mac_check.sh gui
+      - name: Remove Xcode and the Command Line Tools
+        run: |
+          sudo mv /Applications/Xcode*.app "$RUNNER_TEMP/" 2>/dev/null || true
+          sudo rm -rf /Library/Developer/CommandLineTools
+          sudo xcode-select --reset 2>/dev/null || true
+          /usr/bin/xcode-select -p && exit 1 || echo "developer tools gone"
+      - name: Dock PATH checks (no developer tools)
+        run: sh tests/mac_check.sh noclt
+      - name: Real Claude Code, Dock PATH, no developer tools
+        run: env PATH=/usr/bin:/bin:/usr/sbin:/sbin "$BREW_PY" tests/harness_test.py

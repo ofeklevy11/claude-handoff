@@ -1324,7 +1324,7 @@ rep_html = (ROOT / "RELEASE-REPORT.html").read_text(encoding="utf-8") if (ROOT /
 check("#35 RELEASE-REPORT.html points to 1.0.4", "v1.0.4" in rep_html[:6000])
 
 # ------------------------------------------------------------------ 1.0.6: macOS + Linux, and a ZIP that uploads
-section("1.0.6 · macOS + Linux, and a ZIP that uploads (#36-#47)")
+section("1.0.6 · macOS + Linux, and a ZIP that uploads (#36-#48)")
 sys.path.insert(0, str(ROOT / "tools"))
 import zipfile as _zf  # noqa: E402
 import build_zip as bz  # noqa: E402
@@ -1500,6 +1500,9 @@ if can_link:
           got_live == t_live and got_enc == pdir / "enc.jsonl")
 else:
     check("#45 this session's transcript is found from a symlinked folder (n/a: no symlinks on this Windows)", True)
+
+check("#48 /usr/bin/git is used unless it is the macOS developer-tools stub", h.macos_stub("/usr/bin/git") is False
+      and h.macos_stub("/opt/homebrew/bin/git") is False)
 
 if folder:
     gcopy = TMP / "gate-copy"

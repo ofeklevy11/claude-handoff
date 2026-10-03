@@ -160,12 +160,13 @@ claude plugin update handoff@claude-handoff
 ## בדיקות
 
 ```bash
-python tests/run_tests.py        # 356 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
+python tests/run_tests.py        # 357 בדיקות, בלי Claude ובלי עלות: מניפסטים, צנזור, כל החלטות ה-sentinel,
                                  # hook כתהליך אמיתי, גשר ה-statusline, pipeline מלא עם שער חיובי ושלילי, תרגיל,
                                  # ו-1.0.4: קישורים, סודות ב-workspace, ZIP נייד, git, הזרקת מבנה, סשן אחד בתרגיל
                                  # ו-1.0.5: קריאת get_usage ב-hook, דחייה של כלי אחרי בדיקה או עצירה שהמודל התעלם מהן
                                  # ו-1.0.6: ZIP שעולה (גם של GitHub), Python מחוץ ל-PATH ב-Mac, בלי חלון כלי המפתחים,
                                  # Desktop חסום -> ~/handoffs, תיקיות דרך symlink, נתיבי macOS/Linux בשער
+sh tests/mac_check.sh gui        # במק אמיתי: PATH של אפליקציה מה-Dock, Desktop חסום (ב-CI גם בלי כלי מפתחים: noclt)
 python tests/install_test.py     # התקנה אמיתית של הפלאגין לתיקיית הגדרות זמנית (בלי לגעת בשלך)
 python tests/harness_test.py     # תהליך Claude Code אמיתי: הפלאגין נטען, ה-hook רץ, וההודעה מוזרקת למודל. בלי עלות
 python tests/harness_test.py --installed   # אותו דבר על הפלאגין שמותקן אצלך, עם ההגדרות שלך
@@ -215,7 +216,7 @@ paste into a new session or another account. You pick up exactly where you left 
 - Requires Python 3.8+ (macOS: `xcode-select --install`, `brew install python` or python.org; Linux: `python3`;
   Windows: plus Git Bash, which Claude Code already uses). Unusual location: `HANDOFF_PYTHON=/path/to/python3`.
   Everything stays local.
-- Tests: `python tests/run_tests.py` (offline, 356 checks), `tests/install_test.py` (real plugin install
+- Tests: `python tests/run_tests.py` (offline, 357 checks), `tests/install_test.py` (real plugin install
   into a throwaway config), `tests/harness_test.py` (real Claude Code process: plugin loads, hook fires, stop
   message is injected; free), `tests/e2e.py` (real headless Claude session: must stop mid-task and pass the gate).
 
