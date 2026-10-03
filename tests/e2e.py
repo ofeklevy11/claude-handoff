@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PLUGIN = ROOT / "plugins" / "handoff"
+PLUGIN = ROOT  # 1.0.6: the repo root is the plugin, so the ZIP GitHub makes of it uploads as is
 SCRIPTS = PLUGIN / "skills" / "handoff" / "scripts"
 CLAUDE = os.environ.get("CLAUDE_BIN") or shutil.which("claude")
 MODEL = os.environ.get("E2E_MODEL", "sonnet")

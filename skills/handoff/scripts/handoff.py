@@ -44,6 +44,7 @@ STATE = Path(os.environ.get("HANDOFF_STATE_DIR") or CLAUDE / "handoff")
 USAGE_FILE = STATE / "usage.json"
 CONFIG_FILE = STATE / "config.json"
 DEFAULT_OUT = (HOME / "Desktop" if (HOME / "Desktop").is_dir() else HOME) / "handoffs"
+FALLBACK_OUT = HOME / "handoffs"  # when the Desktop cannot be written (macOS privacy, read-only, sync locks)
 
 FILL = "<<FILL"
 REQUIRED_SECTIONS = ["## 0.", "## 1.", "## 2.", "## 3.", "## 4.", "## 5.", "## 6.",
@@ -326,6 +327,39 @@ def encode_cwd(cwd):
     return re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
 
 
+def dir_forms(p):
+    """Every spelling of a folder: as given and with links resolved (macOS /tmp and /var are links to /private/...,
+    and the hook's cwd and os.getcwd() may each use a different one)."""
+    out = set()
+    for f in (os.path.abspath, os.path.realpath):
+        try:
+            out.add(os.path.normcase(f(str(p))))
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def pick_out_root():
+    """The configured (or default) handoff folder when it can be written, else ~/handoffs. macOS can refuse the app
+    access to ~/Desktop (Privacy & Security > Files and Folders): that must not cost the handoff."""
+    want = Path(config()["out_dir"]).expanduser()
+    why = None
+    for root in dict.fromkeys([want, FALLBACK_OUT]):
+        try:
+            L(root).mkdir(parents=True, exist_ok=True)
+            probe = L(root) / f".handoff-write-test.{os.getpid()}"
+            probe.write_text("", encoding="utf-8")
+            probe.unlink()
+        except OSError as e:
+            why = why or (e.strerror or str(e))
+            continue
+        if root != want:
+            print(f"note: cannot write to {want} ({why}), so this handoff goes to {root}", file=sys.stderr)
+        return root
+    sys.exit(f"cannot write a handoff folder: {want} ({why}) and {FALLBACK_OUT} both refused. "
+             f"Set HANDOFF_OUT_DIR to a folder you can write to.")
+
+
 def find_transcript(session, cwd):
     if session and session.endswith(".jsonl"):
         p = Path(session).expanduser()
@@ -340,17 +374,22 @@ def find_transcript(session, cwd):
         if session not in (None, "", "self"):
             sys.exit(f"no transcript for session {sid} under {PROJECTS}")
     # the sentinel records every live session's transcript path: newest one for this cwd wins
-    here = os.path.normcase(os.path.abspath(str(cwd)))
+    here = dir_forms(cwd)
     live = []
     for sp in (STATE / "state").glob("*.json"):
         st = load_json(sp, {}) or {}
         t = st.get("transcript")
-        if t and st.get("cwd") and os.path.normcase(os.path.abspath(st["cwd"])) == here and Path(t).is_file():
+        if t and st.get("cwd") and dir_forms(st["cwd"]) & here and Path(t).is_file():
             live.append((st.get("last_seen", 0), Path(t)))
     if live:
         return max(live)[1]
     d = PROJECTS / encode_cwd(cwd)
-    cands = sorted(d.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True) if d.is_dir() else []
+    cands = set()
+    for spelling in dict.fromkeys([str(cwd), os.path.abspath(str(cwd)), os.path.realpath(str(cwd))]):
+        dd = PROJECTS / encode_cwd(spelling)  # the project dir is named after whichever spelling Claude Code saw
+        if dd.is_dir():
+            cands.update(dd.glob("*.jsonl"))
+    cands = sorted(cands, key=lambda p: p.stat().st_mtime, reverse=True)
     if not cands:
         sys.exit(f"no transcript found for cwd {cwd} (tried {d}); pass --session <uuid|path>")
     return cands[0]
@@ -857,7 +896,7 @@ def cmd_collect(a):
     sid = transcript.stem
     title = a.name or S["title"] or Path(cwd).name
     stamp = now_local()
-    out_root = Path(config()["out_dir"])
+    out_root = pick_out_root()
     folder = out_root / f"{stamp:%Y-%m-%d_%H%M}_{slugify(title)}"
     n = 2
     while folder.exists():
@@ -1106,8 +1145,10 @@ def cmd_verify(a):
     check(not hits, "אין סודות גלויים במסמכים" + (": " + "; ".join(hits[:8]) if hits else ""))
     check(not ws_hits, "עותק ה-workspace נקי מסודות. קובץ עם סוד: להוציא אותו מ-workspace/, לרשום בסעיף 10 איפה "
           "המקור, ולהריץ finalize שוב" + (": " + "; ".join(ws_hits[:8]) if ws_hits else ""))
-    missing = [p for p in set(re.findall(r"`([A-Za-z]:[\\/][^`*?\"<>|\n]+)`", md))
-               if not L(p).exists() and "REDACTED" not in p]
+    named = set(re.findall(r"`([A-Za-z]:[\\/][^`*?\"<>|\n]+)`", md))
+    if os.name != "nt":  # macOS / Linux: home, temp and mounted-volume paths (a server path like /etc/x is not local)
+        named |= set(re.findall(r"`((?:~|/(?:Users|home|tmp|private|Volumes|mnt))/[^`*?\"<>|\n]+)`", md))
+    missing = [p for p in named if not L(Path(p).expanduser()).exists() and "REDACTED" not in p]
     check(not missing, "כל הנתיבים שב-HANDOFF קיימים" + (": " + "; ".join(missing[:6]) if missing else ""), "warn")
     if (F / "PROMPT.txt").is_file():
         check(str(folder) in read(F / "PROMPT.txt"), "PROMPT.txt מצביע לתיקייה הנכונה")
@@ -1287,8 +1328,16 @@ def cmd_drill(a):
 
 
 def cmd_latest(a):
-    p = Path(config()["out_dir"]) / "LATEST.txt"
-    print(p.read_text(encoding="utf-8").strip() if p.is_file() else "no handoffs yet")
+    """Newest handoff, wherever collect put it (the configured folder, or ~/handoffs when that was not writable)."""
+    found = []
+    for root in dict.fromkeys([Path(config()["out_dir"]).expanduser(), FALLBACK_OUT]):
+        try:
+            p = L(root / "LATEST.txt")
+            if p.is_file():
+                found.append((p.stat().st_mtime, p.read_text(encoding="utf-8").strip()))
+        except OSError:
+            pass
+    print(max(found)[1] if found else "no handoffs yet")
 
 # ---------------------------------------------------------------- terminal statusline bridge
 
