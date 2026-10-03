@@ -15,9 +15,9 @@ check() { if eval "$2"; then ok "$1"; else bad "$1"; fi; }
 echo "macOS $(sw_vers -productVersion) $(uname -m) · mode: $mode"
 [ "$(uname -s)" = Darwin ] || { echo "not a Mac"; exit 2; }
 
-hook() {  # $1 launcher, $2 state dir -> stdout of the hook; the sh -x trace goes to $2/trace
+hook() {  # $1 launcher, $2 state dir, $3 session -> stdout of the hook; the sh -x trace goes to $2/trace
   printf '{"ts": %s, "source": "statusline", "five_hour": 85, "seven_day": 20}' "$(date +%s)" > "$2/usage.json"
-  printf '%s' '{"session_id":"mac-1","hook_event_name":"PostToolUse"}' |
+  printf '{"session_id":"%s","hook_event_name":"PostToolUse"}' "${3:-mac-1}" |
     env -i HOME="$HOME" PATH="$GUI_PATH" HANDOFF_STATE_DIR="$2" sh -x "$1" --sentinel 2>"$2/trace"
 }
 
@@ -38,7 +38,7 @@ check "1.0.6: cached a full path" 'case "$cached" in /*) true ;; *) false ;; esa
 if [ "$mode" = noclt ]; then
   check "1.0.6: never ran /usr/bin/python3 (no install popup)" '! grep -Eq "^\++ */usr/bin/python3 -c" "$st/trace"'
   check "1.0.6: used a real Python from an install folder" '[ "$cached" != /usr/bin/python3 ]'
-  out2=$(hook "$RUN" "$st")
+  out2=$(hook "$RUN" "$st" mac-2)  # a new session: the first one was already told to stop
   check "1.0.6: second call (cached) still works and still skips the stub" \
     'printf "%s" "$out2" | grep -q "handoff-sentinel" && ! grep -Eq "^\++ */usr/bin/python3 -c" "$st/trace"'
 fi

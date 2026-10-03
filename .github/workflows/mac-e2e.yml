@@ -44,10 +44,15 @@ jobs:
         run: sh tests/mac_check.sh gui
       - name: Remove Xcode and the Command Line Tools
         run: |
-          sudo mv /Applications/Xcode*.app "$RUNNER_TEMP/" 2>/dev/null || true
+          mkdir "$RUNNER_TEMP/xcodes"
+          sudo mv /Applications/Xcode*.app "$RUNNER_TEMP/xcodes/" 2>/dev/null || true
+          sudo chmod 000 "$RUNNER_TEMP/xcodes"  # out of reach, so nothing can find a moved Xcode either
           sudo rm -rf /Library/Developer/CommandLineTools
           sudo xcode-select --reset 2>/dev/null || true
+          sudo rm -f /var/db/xcode_select_link
+          rm -rf "$(getconf DARWIN_USER_CACHE_DIR)"xcrun_db* 2>/dev/null || true
           /usr/bin/xcode-select -p && exit 1 || echo "developer tools gone"
+          /usr/bin/python3 -c 'import sys; print("python3 still runs:", sys.executable)' || echo "/usr/bin/python3 is now only the stub"
       - name: Dock PATH checks (no developer tools)
         run: sh tests/mac_check.sh noclt
       - name: Real Claude Code, Dock PATH, no developer tools
